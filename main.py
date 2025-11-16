@@ -169,7 +169,8 @@ def home():
 @flask_app.route("/webhook", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), app_bot.bot)
-    asyncio.create_task(app_bot.update_queue.put(update))
+    # Process update directly (fixes no event loop error)
+    asyncio.run(app_bot.process_update(update))
     return "ok"
 
 

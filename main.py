@@ -161,27 +161,15 @@ conv = ConversationHandler(
 
 app_bot.add_handler(conv)
 
-# ---------------- Webhook Routes ----------------
-@flask_app.route("/")
-def home():
-    return "Bot is running!"
-
-@flask_app.route("/webhook", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), app_bot.bot)
-    # Use the already running Application to process the update
-    asyncio.get_event_loop().create_task(app_bot.process_update(update))
-    return "ok"
-
-
 # ---------------- Main ----------------
 if __name__ == "__main__":
-    async def main():
-        # Render provides your hostname in env var RENDER_EXTERNAL_HOSTNAME
-        webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/webhook"
-        await app_bot.bot.set_webhook(webhook_url)
-
-    asyncio.run(main())
-
     port = int(os.environ.get("PORT", 5000))
-    flask_app.run(host="0.0.0.0", port=port)
+    webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/webhook"
+
+    # Run webhook server directly (no Flask needed)
+    app_bot.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path="webhook",
+        webhook_url=webhook_url,
+    )

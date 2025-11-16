@@ -6,14 +6,11 @@ from telegram.ext import (
     filters, ContextTypes, ConversationHandler
 )
 
-# ---------------- CONFIG ----------------
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
 
-# ---------------- STATES ----------------
 NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE = range(11)
 
-# ---------------- HANDLERS ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Salom! Iltimos, ismingizni kiriting:")
     return NAME
@@ -89,7 +86,7 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ☎️ Telefon: {data['phone']}
 """
     await context.bot.send_message(chat_id=ADMIN_ID, text=summary)
-    await update.message.reply_text(f"📋 Siz yuborgan ariza:\n{summary}\n✅ Arizangiz yuborildi!")
+    await update.message.reply_text(f"✅ Arizangiz yuborildi!")
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -97,6 +94,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ Ariza jarayoni bekor qilindi.")
     return ConversationHandler.END
+
+app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
 conv = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
@@ -115,12 +114,11 @@ conv = ConversationHandler(
     },
     fallbacks=[CommandHandler("cancel", cancel)],
 )
-
 app_bot.add_handler(conv)
 
-# ---------------- RUN BOT ----------------
 async def main():
-    print("Bot is starting...")
+    print("Bot started")
     await app_bot.run_polling()
 
+import asyncio
 asyncio.run(main())

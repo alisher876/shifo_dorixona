@@ -169,8 +169,9 @@ def home():
 @flask_app.route("/webhook", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), app_bot.bot)
-    app_bot.update_queue.put(update)
+    asyncio.create_task(app_bot.update_queue.put(update))
     return "ok"
+
 
 # ---------------- Main ----------------
 if __name__ == "__main__":

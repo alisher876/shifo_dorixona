@@ -10,7 +10,7 @@ from flask import Flask, request
 # ------------------ CONFIG ------------------
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
-WEBHOOK_URL = f"https://<YOUR_KOYEB_URL>/{BOT_TOKEN}"  # Replace with your Koyeb app URL
+WEBHOOK_URL = f"https://https://steep-emylee-alisherkurashev001-d3141143.koyeb.app//{BOT_TOKEN}"  # Replace with your Koyeb app URL
 
 # ------------------ STATES ------------------
 NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE = range(11)

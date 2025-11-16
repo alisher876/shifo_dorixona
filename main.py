@@ -5,22 +5,17 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
-from flask import Flask, request
 
-# ------------------ CONFIG ------------------
+# ---------------- CONFIG ----------------
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
-WEBHOOK_URL = f"https://<YOUR_KOYEB_APP_URL>/{BOT_TOKEN}"  # Replace with your Koyeb app URL
 
-# ------------------ STATES ------------------
+# ---------------- STATES ----------------
 NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE = range(11)
 
-# ------------------ TELEGRAM BOT ------------------
-app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
-
+# ---------------- HANDLERS ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_text = "👋 Salom! Iltimos, ismingizni kiriting:"
-    await update.message.reply_text(welcome_text)
+    await update.message.reply_text("👋 Salom! Iltimos, ismingizni kiriting:")
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -66,11 +61,7 @@ async def get_marital(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_salary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['salary'] = update.message.text
     await update.message.reply_text(
-        "💻 Kompyuter ko‘nikmalari:\n"
-        "1 - Hech qachon ishlamaganman\n"
-        "2 - Boshlang‘ich\n"
-        "3 - O‘rta daraja\n"
-        "4 - Juda yaxshi"
+        "💻 Kompyuter ko‘nikmalari:\n1 - Hech qachon ishlamaganman\n2 - Boshlang‘ich\n3 - O‘rta daraja\n4 - Juda yaxshi"
     )
     return COMPUTER
 
@@ -80,9 +71,8 @@ async def get_computer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return PHONE
 
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['phone'] = update.message.text
     data = context.user_data
-    data['phone'] = update.message.text
-
     summary = f"""
 📋 Yangi ariza:
 
@@ -128,22 +118,9 @@ conv = ConversationHandler(
 
 app_bot.add_handler(conv)
 
-# ------------------ FLASK ------------------
-flask_app = Flask(__name__)
+# ---------------- RUN BOT ----------------
+async def main():
+    print("Bot is starting...")
+    await app_bot.run_polling()
 
-@flask_app.route("/")
-def home():
-    return "Bot is running!"
-
-# Telegram webhook route
-@flask_app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), app_bot.bot)
-    asyncio.run(app_bot.update_queue.put(update))
-    return "OK"
-
-# Set webhook once at startup
-async def set_webhook():
-    await app_bot.bot.set_webhook(WEBHOOK_URL)
-
-asyncio.run(set_webhook())
+asyncio.run(main())

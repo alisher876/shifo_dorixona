@@ -10,7 +10,7 @@ from flask import Flask, request
 # ------------------ CONFIG ------------------
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 ADMIN_ID = int(os.environ["ADMIN_ID"])
-WEBHOOK_URL = f"https://https://steep-emylee-alisherkurashev001-d3141143.koyeb.app//{BOT_TOKEN}"  # Replace with your Koyeb app URL
+WEBHOOK_URL = f"https://<YOUR_KOYEB_APP_URL>/{BOT_TOKEN}"  # Replace with your Koyeb app URL
 
 # ------------------ STATES ------------------
 NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE = range(11)
@@ -19,31 +19,8 @@ NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, EXPERIENCE, LAST_JOB, MARITAL, SALARY,
 app_bot = ApplicationBuilder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_text = """
-FARMATSEVT ISHGA TAKLIF QILINADI
-
-💊 Asosiy vazifalar:
- * Mijozlarga xizmat
- * Dori sotish
- * Ma'lumot berish
- * Hujjat yuritish
- * Doimiy mijozlar bilan ishlash
-
-✅ Nomzodlarga talablar: 
- * Yoshi 18-35 
- * Jamoada ishlash 
- * Xushmuomalalik 
- * Stressga chidamli
- * Ozoda bo'lish
-
-🌟 Bizning takliflarimiz:
- * Oylik + Bonus
- * Rasmiy ish
- * Bepul o‘qish
- * Karyera o‘sishi
-"""
+    welcome_text = "👋 Salom! Iltimos, ismingizni kiriting:"
     await update.message.reply_text(welcome_text)
-    await update.message.reply_text("👋 Salom! Iltimos, ismingizni kiriting:")
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,8 +80,8 @@ async def get_computer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return PHONE
 
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['phone'] = update.message.text
     data = context.user_data
+    data['phone'] = update.message.text
 
     summary = f"""
 📋 Yangi ariza:
@@ -158,14 +135,14 @@ flask_app = Flask(__name__)
 def home():
     return "Bot is running!"
 
-# Telegram webhook
+# Telegram webhook route
 @flask_app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), app_bot.bot)
     asyncio.run(app_bot.update_queue.put(update))
     return "OK"
 
-# ------------------ START WEBHOOK ------------------
+# Set webhook once at startup
 async def set_webhook():
     await app_bot.bot.set_webhook(WEBHOOK_URL)
 

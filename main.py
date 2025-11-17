@@ -13,7 +13,7 @@ NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, EXPERIENCE, LAST_JOB, MARITAL, SALARY,
 ADMIN_ID = int(os.environ['ADMIN_ID'])
 
 # ---------------- Flask App ----------------
-flask_app = Flask(__name__)
+
 
 # ---------------- Telegram Bot ----------------
 app_bot = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()

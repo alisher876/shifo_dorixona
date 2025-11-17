@@ -21,7 +21,7 @@ app_bot = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
 # ---------------- Handlers ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = """
-SHIFO ARZON DORIXONA ISHGA TAKLIF QILINADI
+SHIFO ARZON DORIXONA ISHGA TAKLIF QILADI
 
 💊 Asosiy vazifalar:
  * Mijozlarga xizmat

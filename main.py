@@ -163,7 +163,7 @@ app_bot.add_handler(conv)
 # ---------------- Main ----------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/webhook"
+    webhook_url = "https://web-production-6e12c.up.railway.app/"
 
     # Run webhook server directly (no Flask needed)
     app_bot.run_webhook(

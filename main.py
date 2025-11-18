@@ -169,7 +169,6 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     webhook_url = "https://web-production-6e12c.up.railway.app/webhook"
 
-
     app_bot.run_webhook(
         listen="0.0.0.0",
         port=port,

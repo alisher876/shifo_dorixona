@@ -7,13 +7,10 @@ from telegram.ext import (
 )
 
 # ---------------- Conversation States ----------------
-NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE = range(11)
+VACANCY, NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE = range(12)
 
 # ---------------- Admin ID ----------------
 ADMIN_ID = int(os.environ['ADMIN_ID'])
-
-# ---------------- Flask App ----------------
-
 
 # ---------------- Telegram Bot ----------------
 app_bot = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
@@ -46,6 +43,11 @@ SHIFO ARZON DORIXONA ISHGA TAKLIF QILADI
 Ro'yxatdan o'tishda ma'lumotlarni to‘g‘ri kiriting.
 """
     await update.message.reply_text(welcome_text)
+    await update.message.reply_text("✨ Qaysi vakansiya bo'yicha ishlamoqchisiz (lavozim)?")
+    return VACANCY
+
+async def get_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['vacancy'] = update.message.text
     await update.message.reply_text("👋 Salom! Iltimos, ismingizni kiriting:")
     return NAME
 
@@ -112,6 +114,7 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary = f"""
 📋 Yangi ariza:
 
+✨ Vakansiya: {data['vacancy']}
 👤 Ism: {data['name']}
 🗓️ Tug‘ilgan sana: {data['birthday']}
 📍 Manzil: {data['address']}
@@ -143,6 +146,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 conv = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
     states={
+        VACANCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_vacancy)],
         NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
         BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_birthday)],
         ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_address)],
@@ -165,7 +169,6 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     webhook_url = "https://web-production-6e12c.up.railway.app/"
 
-    # Run webhook server directly (no Flask needed)
     app_bot.run_webhook(
         listen="0.0.0.0",
         port=port,

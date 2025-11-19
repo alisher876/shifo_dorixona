@@ -132,7 +132,11 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=ADMIN_ID, text=summary)
 
     # Send confirmation to user
-    await update.message.reply_text(f"📋 Siz yuborgan ariza:\n{summary}\n✅ Arizangiz yuborildi!\n\n📍 Manzilimiz: Navoiy vil,Navoiy shaxar, Guliston-3. 49a uy. (Mòljal: Guliston 3 poliklinika)")
+    await update.message.reply_text(
+        f"📋 Siz yuborgan ariza:\n{summary}\n✅ Arizangiz yuborildi!\n\n"
+        "📍 Manzilimiz: Navoiy vil, Navoiy shahar, Guliston-3, 49a uy. "
+        "(Mòljal: Guliston 3 poliklinika)"
+    )
 
     context.user_data.clear()
     return ConversationHandler.END

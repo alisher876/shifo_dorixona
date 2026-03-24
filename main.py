@@ -1,64 +1,118 @@
 import os
-import asyncio
-from telegram import Update
+import sqlite3
+import logging
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
 
-# ---------------- Conversation States ----------------
-VACANCY, NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE = range(12)
+# ---------------- Configuration ----------------
+# If your volume mount path is /data, use: /data/bot_data.db
+DB_PATH = "/data/bot_data.db" 
+ADMIN_IDS = [int(i.strip()) for i in os.environ.get('ADMIN_ID', '').split(',') if i.strip()]
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+PORT = int(os.environ.get("PORT", 5000))
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-# ---------------- Admin ID ----------------
-ADMIN_ID = int(os.environ['ADMIN_ID'])
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ---------------- Telegram Bot ----------------
-app_bot = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
+# ---------------- Database Logic ----------------
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, title TEXT)''')
+    conn.commit()
+    conn.close()
+
+def get_jobs():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT title FROM jobs")
+    jobs = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return jobs
+
+def add_job_db(title):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO jobs (title) VALUES (?)", (title,))
+    conn.commit()
+    conn.close()
+
+def remove_job_db(index):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM jobs LIMIT 1 OFFSET ?", (index,))
+    row = cursor.fetchone()
+    if row:
+        cursor.execute("DELETE FROM jobs WHERE id = ?", (row[0],))
+        conn.commit()
+        conn.close()
+        return True
+    conn.close()
+    return False
+
+# ---------------- States ----------------
+(MENU, VACANCY, NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, 
+ EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE, ADD_JOB, REMOVE_JOB) = range(15)
+
+# ---------------- Keyboards ----------------
+def main_menu_keyboard():
+    keyboard = [
+        ["📝 Ishga ariza topshirish"],
+        ["🏢 Kompaniya haqida", "📋 Bo'sh ish o'rinlari"]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ---------------- Handlers ----------------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_text = """
-SHIFO ARZON DORIXONA ISHGA TAKLIF QILADI
+    await update.message.reply_text(
+        "👋 Shifo Arzon xizmatiga xush kelibsiz!\nQuyidagi menyudan foydalaning:",
+        reply_markup=main_menu_keyboard()
+    )
+    return MENU
 
-💊 Asosiy vazifalar:
- * Mijozlarga xizmat
- * Dori sotish
- * Ma'lumot berish
- * Hujjat yuritish
- * Doimiy mijozlar bilan ishlash
+async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
 
-✅ Nomzodlarga talablar: 
- * Yoshi 18-35 
- * Jamoada ishlash 
- * Xushmuomalalik 
- * Stressga chidamli
- * Ozoda bo'lish
+    if text == "🏢 Kompaniya haqida":
+        await update.message.reply_text(
+            "💊 *SHIFO ARZON* — aholiga sifatli va arzon dori vositalarini yetkazuvchi dorixonalar tarmog'i.\n"
+            "📍 Manzil: Navoiy shahar, Guliston-3, 49a uy.",
+            parse_mode='Markdown'
+        )
+        return MENU
 
-🌟 Bizning takliflarimiz:
- * Oylik + Bonus
- * Rasmiy ish
- * Bepul o‘qish
- * Karyera o‘sishi
+    elif text == "📋 Bo'sh ish o'rinlari":
+        jobs = get_jobs()
+        if not jobs:
+            msg = "Hozircha bo'sh ish o'rinlari mavjud emas."
+        else:
+            msg = "🌟 *Bo'sh ish o'rinlari:*\n\n" + "\n".join([f"• {j}" for j in jobs])
+        await update.message.reply_text(msg, parse_mode='Markdown')
+        return MENU
 
-Ro'yxatdan o'tishda ma'lumotlarni to‘g‘ri kiriting.
-"""
-    await update.message.reply_text(welcome_text)
-    await update.message.reply_text("✨ Qaysi vakansiya bo'yicha ishlamoqchisiz (lavozim)?")
-    return VACANCY
+    elif text == "📝 Ishga ariza topshirish":
+        await update.message.reply_text("✨ Qaysi vakansiya (lavozim) bo'yicha ishlamoqchisiz?", reply_markup=ReplyKeyboardRemove())
+        return VACANCY
+
+# ---------------- Recruitment Flow ----------------
 
 async def get_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['vacancy'] = update.message.text
-    await update.message.reply_text("👋 Salom! Iltimos, ismingizni kiriting:")
+    await update.message.reply_text("👤 Ismingizni kiriting:")
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['name'] = update.message.text
-    await update.message.reply_text("🗓️ Tug‘ilgan sanangizni kun/oy/yil formatida yozing:")
+    await update.message.reply_text("🗓️ Tug‘ilgan sanangiz (kun/oy/yil):")
     return BIRTHDAY
 
 async def get_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['birthday'] = update.message.text
-    await update.message.reply_text("📍 Qaysi manzilda yashaysiz?")
+    await update.message.reply_text("📍 Yashash manzilingiz?")
     return ADDRESS
 
 async def get_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -68,17 +122,17 @@ async def get_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['city'] = update.message.text
-    await update.message.reply_text("🎓 Ta’lim darajangiz (o‘rta maxsus / oliy):")
+    await update.message.reply_text("🎓 Ta’lim darajangiz?")
     return EDUCATION
 
 async def get_education(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['education'] = update.message.text
-    await update.message.reply_text("⏳ Bu sohada qancha vaqt ishlagansiz?")
+    await update.message.reply_text("⏳ Ish tajribangiz qancha?")
     return EXPERIENCE
 
 async def get_experience(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['experience'] = update.message.text
-    await update.message.reply_text("💼 Oldingi ish joyingiz?")
+    await update.message.reply_text("💼 Oxirgi ish joyingiz?")
     return LAST_JOB
 
 async def get_last_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -88,94 +142,104 @@ async def get_last_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_marital(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['marital'] = update.message.text
-    await update.message.reply_text("💸 Qancha maosh kutmoqdasiz?")
+    await update.message.reply_text("💸 Kutilayotgan maosh?")
     return SALARY
 
 async def get_salary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['salary'] = update.message.text
-    await update.message.reply_text(
-        "💻 Kompyuter ko‘nikmalari:\n"
-        "1 - Hech qachon ishlamaganman\n"
-        "2 - Boshlang‘ich\n"
-        "3 - O‘rta daraja\n"
-        "4 - Juda yaxshi"
-    )
+    await update.message.reply_text("💻 Kompyuter bilimi (1-4 gacha baholang):")
     return COMPUTER
 
 async def get_computer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['computer'] = update.message.text
-    await update.message.reply_text("☎️ Telefon raqamingizni kiriting:")
+    await update.message.reply_text("☎️ Telefon raqamingiz:")
     return PHONE
 
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['phone'] = update.message.text
-    data = context.user_data
-
-    summary = f"""
-📋 Yangi ariza:
-
-✨ Vakansiya: {data['vacancy']}
-👤 Ism: {data['name']}
-🗓️ Tug‘ilgan sana: {data['birthday']}
-📍 Manzil: {data['address']}
-🏥 Hudud: {data['city']}
-🎓 Ta’lim: {data['education']}
-⏳ Tajriba: {data['experience']}
-💼 Oldingi ish: {data['last_job']}
-💍 Oilaviy holati: {data['marital']}
-💸 Maosh: {data['salary']}
-💻 Kompyuter: {data['computer']}
-☎️ Telefon: {data['phone']}
-"""
-
-    # Send to admin
-    await context.bot.send_message(chat_id=ADMIN_ID, text=summary)
-
-    # Send confirmation to user
-    await update.message.reply_text(
-        f"📋 Siz yuborgan ariza:\n{summary}\n✅ Arizangiz yuborildi!\n\n"
-        "📍 Manzilimiz: Navoiy vil, Navoiy shahar, Guliston-3, 49a uy. "
-        "(Mòljal: Guliston 3 poliklinika)"
+    d = context.user_data
+    summary = (
+        f"📋 *YANGI ARIZA*\n\n👤 Ism: {d['name']}\n✨ Lavozim: {d['vacancy']}\n🗓️ Sana: {d['birthday']}\n"
+        f"📍 Manzil: {d['address']}\n🏥 Hudud: {d['city']}\n🎓 Ta'lim: {d['education']}\n⏳ Tajriba: {d['experience']}\n"
+        f"💼 Ish: {d['last_job']}\n💍 Holat: {d['marital']}\n💸 Maosh: {d['salary']}\n💻 Komp: {d['computer']}\n☎️ Tel: {d['phone']}"
     )
 
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.send_message(chat_id=admin_id, text=summary, parse_mode='Markdown')
+        except: pass
+
+    await update.message.reply_text("✅ Arizangiz yuborildi!", reply_markup=main_menu_keyboard())
     context.user_data.clear()
-    return ConversationHandler.END
+    return MENU
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("❌ Ariza jarayoni bekor qilindi.")
-    return ConversationHandler.END
+# ---------------- Admin Management ----------------
 
-# ---------------- Conversation Setup ----------------
-conv = ConversationHandler(
-    entry_points=[CommandHandler("start", start)],
-    states={
-        VACANCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_vacancy)],
-        NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-        BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_birthday)],
-        ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_address)],
-        CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_city)],
-        EDUCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_education)],
-        EXPERIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_experience)],
-        LAST_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_last_job)],
-        MARITAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_marital)],
-        SALARY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_salary)],
-        COMPUTER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_computer)],
-        PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-)
+async def add_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS: return MENU
+    await update.message.reply_text("Yangi vakansiya nomini yozing:", reply_markup=ReplyKeyboardRemove())
+    return ADD_JOB
 
-app_bot.add_handler(conv)
+async def add_job_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    add_job_db(update.message.text)
+    await update.message.reply_text("✅ Qo'shildi!", reply_markup=main_menu_keyboard())
+    return MENU
+
+async def remove_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS: return MENU
+    jobs = get_jobs()
+    if not jobs:
+        await update.message.reply_text("Ro'yxat bo'sh.")
+        return MENU
+    msg = "\n".join([f"{i+1}. {j}" for i, j in enumerate(jobs)])
+    await update.message.reply_text(f"O'chirish uchun raqamni yozing:\n\n{msg}", reply_markup=ReplyKeyboardRemove())
+    return REMOVE_JOB
+
+async def remove_job_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        idx = int(update.message.text) - 1
+        if remove_job_db(idx):
+            await update.message.reply_text("❌ O'chirildi.", reply_markup=main_menu_keyboard())
+        else:
+            await update.message.reply_text("Xato raqam.", reply_markup=main_menu_keyboard())
+    except:
+        await update.message.reply_text("Faqat raqam yozing.", reply_markup=main_menu_keyboard())
+    return MENU
 
 # ---------------- Main ----------------
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    webhook_url = "https://web-production-6e12c.up.railway.app/webhook"
 
-    app_bot.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path="webhook",
-        webhook_url=webhook_url,
+def main():
+    init_db()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    conv = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler)],
+            VACANCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_vacancy)],
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
+            BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_birthday)],
+            ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_address)],
+            CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_city)],
+            EDUCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_education)],
+            EXPERIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_experience)],
+            LAST_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_last_job)],
+            MARITAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_marital)],
+            SALARY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_salary)],
+            COMPUTER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_computer)],
+            PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
+            ADD_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_job_finish)],
+            REMOVE_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, remove_job_finish)],
+        },
+        fallbacks=[
+            CommandHandler("addjob", add_job_start),
+            CommandHandler("removejob", remove_job_start),
+            CommandHandler("cancel", start)
+        ],
     )
+
+    app.add_handler(conv)
+    app.run_webhook(listen="0.0.0.0", port=PORT, url_path=BOT_TOKEN, webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
+
+if __name__ == "__main__":
+    main()

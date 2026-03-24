@@ -58,24 +58,36 @@ def remove_job_db(index):
  EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE, ADD_JOB, REMOVE_JOB) = range(15)
 
 # ---------------- Keyboards ----------------
-def main_menu_keyboard():
+def main_menu_keyboard(is_admin=False):
     keyboard = [
         ["📝 Ishga ariza topshirish"],
         ["🏢 Kompaniya haqida", "📋 Bo'sh ish o'rinlari"]
     ]
+    # If the user is an admin, add the management buttons
+    if is_admin:
+        keyboard.append(["➕ Vakansiya qo'shish", "❌ Vakansiya o'chirish"])
+    
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
 # ---------------- Handlers ----------------
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    is_admin = user_id in ADMIN_IDS
+    
+    welcome_text = "👋 Shifo Arzon xizmatiga xush kelibsiz!"
+    if is_admin:
+        welcome_text += "\n\n🛠 **Admin paneli faollashdi.**"
+
     await update.message.reply_text(
-        "👋 Shifo Arzon xizmatiga xush kelibsiz!\nQuyidagi menyudan foydalaning:",
-        reply_markup=main_menu_keyboard()
+        welcome_text,
+        reply_markup=main_menu_keyboard(is_admin=is_admin),
+        parse_mode='Markdown'
     )
     return MENU
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+    user_id = update.effective_user.id
+    is_admin = user_id in ADMIN_IDS
 
     if text == "🏢 Kompaniya haqida":
         await update.message.reply_text(
@@ -97,6 +109,13 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "📝 Ishga ariza topshirish":
         await update.message.reply_text("✨ Qaysi vakansiya (lavozim) bo'yicha ishlamoqchisiz?", reply_markup=ReplyKeyboardRemove())
         return VACANCY
+
+    # NEW ADMIN BUTTON LOGIC
+    if text == "➕ Vakansiya qo'shish" and is_admin:
+        return await add_job_start(update, context)
+        
+    elif text == "❌ Vakansiya o'chirish" and is_admin:
+        return await remove_job_start(update, context)
 
 # ---------------- Recruitment Flow ----------------
 

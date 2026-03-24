@@ -89,6 +89,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     is_admin = user_id in ADMIN_IDS
 
+    # 1. Company Info
     if text == "🏢 Kompaniya haqida":
         await update.message.reply_text(
             "💊 *SHIFO ARZON* — aholiga sifatli va arzon dori vositalarini yetkazuvchi dorixonalar tarmog'i.\n"
@@ -97,6 +98,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return MENU
 
+    # 2. View Jobs
     elif text == "📋 Bo'sh ish o'rinlari":
         jobs = get_jobs()
         if not jobs:
@@ -106,17 +108,29 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, parse_mode='Markdown')
         return MENU
 
+    # 3. Start Application
     elif text == "📝 Ishga ariza topshirish":
-        await update.message.reply_text("✨ Qaysi vakansiya (lavozim) bo'yicha ishlamoqchisiz?", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text(
+            "✨ Qaysi vakansiya (lavozim) bo'yicha ishlamoqchisiz?", 
+            reply_markup=ReplyKeyboardRemove()
+        )
         return VACANCY
 
-    # NEW ADMIN BUTTON LOGIC
-    if text == "➕ Vakansiya qo'shish" and is_admin:
+    # 4. Admin: Add Job (Check text AND admin status)
+    elif text == "➕ Vakansiya qo'shish" and is_admin:
         return await add_job_start(update, context)
         
+    # 5. Admin: Remove Job (Check text AND admin status)
     elif text == "❌ Vakansiya o'chirish" and is_admin:
         return await remove_job_start(update, context)
 
+    # 6. Fallback for unknown text
+    else:
+        await update.message.reply_text(
+            "Iltimos, menyudagi tugmalardan birini tanlang:",
+            reply_markup=main_menu_keyboard(is_admin=is_admin)
+        )
+        return MENU
 # ---------------- Recruitment Flow ----------------
 
 async def get_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -189,6 +203,14 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
 
     await update.message.reply_text("✅ Arizangiz yuborildi!", reply_markup=main_menu_keyboard())
+
+    user_id = update.effective_user.id
+    is_admin = user_id in ADMIN_IDS
+    
+    await update.message.reply_text(
+        "✅ Arizangiz yuborildi! Rahmat.", 
+        reply_markup=main_menu_keyboard(is_admin=is_admin) # Keep admin buttons if an admin applies
+    )
     context.user_data.clear()
     return MENU
 
@@ -200,8 +222,15 @@ async def add_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_JOB
 
 async def add_job_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    add_job_db(update.message.text)
-    await update.message.reply_text("✅ Qo'shildi!", reply_markup=main_menu_keyboard())
+    user_id = update.effective_user.id
+    is_admin = user_id in ADMIN_IDS
+    
+    add_job_db(update.message.text) # Save to database
+    
+    await update.message.reply_text(
+        "✅ Vakansiya qo'shildi!", 
+        reply_markup=main_menu_keyboard(is_admin=is_admin) # <--- THIS IS KEY
+    )
     return MENU
 
 async def remove_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -215,16 +244,27 @@ async def remove_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return REMOVE_JOB
 
 async def remove_job_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    is_admin = user_id in ADMIN_IDS
+    
     try:
         idx = int(update.message.text) - 1
         if remove_job_db(idx):
-            await update.message.reply_text("❌ O'chirildi.", reply_markup=main_menu_keyboard())
+            await update.message.reply_text(
+                "❌ Vakansiya o'chirildi.", 
+                reply_markup=main_menu_keyboard(is_admin=is_admin) # Pass the admin check here
+            )
         else:
-            await update.message.reply_text("Xato raqam.", reply_markup=main_menu_keyboard())
+            await update.message.reply_text(
+                "Bunday raqamli vakansiya topilmadi.", 
+                reply_markup=main_menu_keyboard(is_admin=is_admin)
+            )
     except:
-        await update.message.reply_text("Faqat raqam yozing.", reply_markup=main_menu_keyboard())
+        await update.message.reply_text(
+            "Iltimos, faqat raqam yozing.", 
+            reply_markup=main_menu_keyboard(is_admin=is_admin)
+        )
     return MENU
-
 # ---------------- Main ----------------
 
 def main():

@@ -1,3 +1,6 @@
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import ContextTypes
+
 # ---------------- Admin Navigation Logic ----------------
 
 async def show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -1,272 +1,241 @@
 import os
 import sqlite3
 import logging
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
 
 # ---------------- Configuration ----------------
-# If your volume mount path is /data, use: /data/bot_data.db
-DB_PATH = "/data/bot_data.db" 
-ADMIN_IDS = [int(i.strip()) for i in os.environ.get('ADMIN_ID', '').split(',') if i.strip()]
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-PORT = int(os.environ.get("PORT", 5000))
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+DB_PATH = "shifo_arzon_v3.db"
+# Example ADMIN_ID env: "1234567,8901234"
+ADMIN_IDS = [int(i.strip()) for i in os.environ.get('ADMIN_ID', '0').split(',') if i.strip()]
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_TOKEN_HERE")
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ---------------- Database Logic ----------------
+# ---------------- Database Engine ----------------
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, title TEXT)''')
+    cursor.execute('PRAGMA foreign_keys = ON')
+    
+    # Core Tables
+    cursor.execute('CREATE TABLE IF NOT EXISTS regions (id INTEGER PRIMARY KEY, name TEXT UNIQUE)')
+    cursor.execute('CREATE TABLE IF NOT EXISTS districts (id INTEGER PRIMARY KEY, name TEXT, region_id INTEGER, FOREIGN KEY(region_id) REFERENCES regions(id) ON DELETE CASCADE)')
+    cursor.execute('CREATE TABLE IF NOT EXISTS branches (id INTEGER PRIMARY KEY, name TEXT, district_id INTEGER, FOREIGN KEY(district_id) REFERENCES districts(id) ON DELETE CASCADE)')
+    cursor.execute('CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, title TEXT UNIQUE)')
+    
+    # Mapping Table: Defines which branch has which vacancy
+    cursor.execute('CREATE TABLE IF NOT EXISTS branch_jobs (branch_id INTEGER, job_id INTEGER, FOREIGN KEY(branch_id) REFERENCES branches(id) ON DELETE CASCADE, FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE)')
+    
     conn.commit()
     conn.close()
 
-def get_jobs():
+def db_query(query, params=()):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT title FROM jobs")
-    jobs = [row[0] for row in cursor.fetchall()]
+    cursor.execute(query, params)
+    result = cursor.fetchall()
     conn.close()
-    return jobs
+    return result
 
-def add_job_db(title):
+def db_execute(query, params=()):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO jobs (title) VALUES (?)", (title,))
+    cursor.execute(query, params)
     conn.commit()
     conn.close()
-
-def remove_job_db(index):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM jobs LIMIT 1 OFFSET ?", (index,))
-    row = cursor.fetchone()
-    if row:
-        cursor.execute("DELETE FROM jobs WHERE id = ?", (row[0],))
-        conn.commit()
-        conn.close()
-        return True
-    conn.close()
-    return False
 
 # ---------------- States ----------------
-(MENU, VACANCY, NAME, BIRTHDAY, ADDRESS, CITY, EDUCATION, 
- EXPERIENCE, LAST_JOB, MARITAL, SALARY, COMPUTER, PHONE, ADD_JOB, REMOVE_JOB) = range(15)
+(MENU, SELECT_JOB, SELECT_REGION, SELECT_DISTRICT, SELECT_BRANCH, NAME, PHONE,
+ ADMIN_MENU, ADMIN_ADD_TYPE, ADMIN_SELECT_PARENT, ADMIN_INPUT_NAME, ADMIN_LINK_JOB) = range(12)
 
 # ---------------- Keyboards ----------------
-def main_menu_keyboard(is_admin=False):
-    keyboard = [
-        ["📝 Ishga ariza topshirish"],
-        ["🏢 Kompaniya haqida", "📋 Bo'sh ish o'rinlari"]
-    ]
-    # If the user is an admin, add the management buttons
-    if is_admin:
-        keyboard.append(["➕ Vakansiya qo'shish", "❌ Vakansiya o'chirish"])
-    
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-# ---------------- Handlers ----------------
+def main_menu_kb(user_id):
+    kb = [["📋 Available Jobs"], ["🏢 About Company"]]
+    if user_id in ADMIN_IDS:
+        kb.append(["🛠 Admin Panel"])
+    return ReplyKeyboardMarkup(kb, resize_keyboard=True)
+
+def admin_menu_kb():
+    kb = [["➕ Add Data", "🔗 Link Job to Branch"], ["⬅️ Back to Main Menu"]]
+    return ReplyKeyboardMarkup(kb, resize_keyboard=True)
+
+# ---------------- User Handlers ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    is_admin = user_id in ADMIN_IDS
-    
-    welcome_text = "👋 Shifo Arzon xizmatiga xush kelibsiz!"
-    if is_admin:
-        welcome_text += "\n\n🛠 **Admin paneli faollashdi.**"
-
     await update.message.reply_text(
-        welcome_text,
-        reply_markup=main_menu_keyboard(is_admin=is_admin),
-        parse_mode='Markdown'
+        "👋 Welcome to Shifo Arzon Career Bot!",
+        reply_markup=main_menu_kb(user_id)
     )
     return MENU
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    user_id = update.effective_user.id
-    is_admin = user_id in ADMIN_IDS
-
-    # 1. Company Info
-    if text == "🏢 Kompaniya haqida":
-        await update.message.reply_text(
-            "💊 *SHIFO ARZON* — aholiga sifatli va arzon dori vositalarini yetkazuvchi dorixonalar tarmog'i.\n"
-            "📍 Manzil: Navoiy shahar, Guliston-3, 49a uy.",
-            parse_mode='Markdown'
-        )
+    if text == "🏢 About Company":
+        await update.message.reply_text("Shifo Arzon is a leading pharmacy network providing affordable medicine.")
         return MENU
-
-    # 2. View Jobs
-    elif text == "📋 Bo'sh ish o'rinlari":
-        jobs = get_jobs()
+    
+    elif text == "📋 Available Jobs":
+        jobs = db_query("SELECT title FROM jobs")
         if not jobs:
-            msg = "Hozircha bo'sh ish o'rinlari mavjud emas."
-        else:
-            msg = "🌟 *Bo'sh ish o'rinlari:*\n\n" + "\n".join([f"• {j}" for j in jobs])
-        await update.message.reply_text(msg, parse_mode='Markdown')
+            await update.message.reply_text("No active vacancies at the moment.")
+            return MENU
+        buttons = [[j[0]] for j in jobs]
+        await update.message.reply_text("Select a position:", reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
+        return SELECT_JOB
+
+    elif text == "🛠 Admin Panel" and update.effective_user.id in ADMIN_IDS:
+        await update.message.reply_text("Admin Mode Active.", reply_markup=admin_menu_kb())
+        return ADMIN_MENU
+
+async def job_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    job_title = update.message.text
+    context.user_data['job'] = job_title
+    
+    # Filter regions that have this specific job in their branches
+    query = """
+        SELECT DISTINCT r.name FROM regions r
+        JOIN districts d ON r.id = d.region_id
+        JOIN branches b ON d.id = b.district_id
+        JOIN branch_jobs bj ON b.id = bj.branch_id
+        JOIN jobs j ON bj.job_id = j.id
+        WHERE j.title = ?
+    """
+    regions = db_query(query, (job_title,))
+    if not regions:
+        await update.message.reply_text("No branches currently have this vacancy.")
         return MENU
 
-    # 3. Start Application
-    elif text == "📝 Ishga ariza topshirish":
-        await update.message.reply_text(
-            "✨ Qaysi vakansiya (lavozim) bo'yicha ishlamoqchisiz?", 
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return VACANCY
+    buttons = [[r[0]] for r in regions]
+    await update.message.reply_text("Select Region:", reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
+    return SELECT_REGION
 
-    # 4. Admin: Add Job (Check text AND admin status)
-    elif text == "➕ Vakansiya qo'shish" and is_admin:
-        return await add_job_start(update, context)
-        
-    # 5. Admin: Remove Job (Check text AND admin status)
-    elif text == "❌ Vakansiya o'chirish" and is_admin:
-        return await remove_job_start(update, context)
+async def region_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    region_name = update.message.text
+    query = """
+        SELECT DISTINCT d.name FROM districts d
+        JOIN regions r ON d.region_id = r.id
+        JOIN branches b ON d.id = b.district_id
+        JOIN branch_jobs bj ON b.id = bj.branch_id
+        JOIN jobs j ON bj.job_id = j.id
+        WHERE r.name = ? AND j.title = ?
+    """
+    districts = db_query(query, (region_name, context.user_data['job']))
+    buttons = [[d[0]] for d in districts]
+    await update.message.reply_text("Select District:", reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
+    return SELECT_DISTRICT
 
-    # 6. Fallback for unknown text
-    else:
-        await update.message.reply_text(
-            "Iltimos, menyudagi tugmalardan birini tanlang:",
-            reply_markup=main_menu_keyboard(is_admin=is_admin)
-        )
-        return MENU
-# ---------------- Recruitment Flow ----------------
+async def district_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    district_name = update.message.text
+    query = """
+        SELECT DISTINCT b.name FROM branches b
+        JOIN districts d ON b.district_id = d.id
+        JOIN branch_jobs bj ON b.id = bj.branch_id
+        JOIN jobs j ON bj.job_id = j.id
+        WHERE d.name = ? AND j.title = ?
+    """
+    branches = db_query(query, (district_name, context.user_data['job']))
+    buttons = [[b[0]] for b in branches]
+    await update.message.reply_text("Select Branch:", reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
+    return SELECT_BRANCH
 
-async def get_vacancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['vacancy'] = update.message.text
-    await update.message.reply_text("👤 Ismingizni kiriting:")
+async def branch_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['branch'] = update.message.text
+    await update.message.reply_text("Enter your Full Name:", reply_markup=ReplyKeyboardRemove())
     return NAME
 
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['name'] = update.message.text
-    await update.message.reply_text("🗓️ Tug‘ilgan sanangiz (kun/oy/yil):")
-    return BIRTHDAY
-
-async def get_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['birthday'] = update.message.text
-    await update.message.reply_text("📍 Yashash manzilingiz?")
-    return ADDRESS
-
-async def get_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['address'] = update.message.text
-    await update.message.reply_text("🏥 Qaysi hududda ishlashni xohlaysiz?")
-    return CITY
-
-async def get_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['city'] = update.message.text
-    await update.message.reply_text("🎓 Ta’lim darajangiz?")
-    return EDUCATION
-
-async def get_education(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['education'] = update.message.text
-    await update.message.reply_text("⏳ Ish tajribangiz qancha?")
-    return EXPERIENCE
-
-async def get_experience(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['experience'] = update.message.text
-    await update.message.reply_text("💼 Oxirgi ish joyingiz?")
-    return LAST_JOB
-
-async def get_last_job(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['last_job'] = update.message.text
-    await update.message.reply_text("💍 Oilaviy holatingiz?")
-    return MARITAL
-
-async def get_marital(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['marital'] = update.message.text
-    await update.message.reply_text("💸 Kutilayotgan maosh?")
-    return SALARY
-
-async def get_salary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['salary'] = update.message.text
-    await update.message.reply_text("💻 Kompyuter bilimi (1-4 gacha baholang):")
-    return COMPUTER
-
-async def get_computer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['computer'] = update.message.text
-    await update.message.reply_text("☎️ Telefon raqamingiz:")
+    context.user_data['user_name'] = update.message.text
+    await update.message.reply_text("Enter your Phone Number:")
     return PHONE
 
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['phone'] = update.message.text
+    phone = update.message.text
     d = context.user_data
-    summary = (
-        f"📋 *YANGI ARIZA*\n\n👤 Ism: {d['name']}\n✨ Lavozim: {d['vacancy']}\n🗓️ Sana: {d['birthday']}\n"
-        f"📍 Manzil: {d['address']}\n🏥 Hudud: {d['city']}\n🎓 Ta'lim: {d['education']}\n⏳ Tajriba: {d['experience']}\n"
-        f"💼 Ish: {d['last_job']}\n💍 Holat: {d['marital']}\n💸 Maosh: {d['salary']}\n💻 Komp: {d['computer']}\n☎️ Tel: {d['phone']}"
-    )
-
+    summary = f"🆕 **New Application**\nJob: {d['job']}\nBranch: {d['branch']}\nName: {d['user_name']}\nPhone: {phone}"
+    
     for admin_id in ADMIN_IDS:
-        try:
-            await context.bot.send_message(chat_id=admin_id, text=summary, parse_mode='Markdown')
+        try: await context.bot.send_message(chat_id=admin_id, text=summary, parse_mode='Markdown')
         except: pass
-
-    await update.message.reply_text("✅ Arizangiz yuborildi!", reply_markup=main_menu_keyboard())
-
-    user_id = update.effective_user.id
-    is_admin = user_id in ADMIN_IDS
     
-    await update.message.reply_text(
-        "✅ Arizangiz yuborildi! Rahmat.", 
-        reply_markup=main_menu_keyboard(is_admin=is_admin) # Keep admin buttons if an admin applies
-    )
-    context.user_data.clear()
+    await update.message.reply_text("✅ Application sent!", reply_markup=main_menu_kb(update.effective_user.id))
     return MENU
 
-# ---------------- Admin Management ----------------
+# ---------------- Admin Handlers ----------------
+async def admin_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kb = [["Region", "District"], ["Branch", "Job"], ["⬅️ Back"]]
+    await update.message.reply_text("What would you like to add?", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    return ADMIN_ADD_TYPE
 
-async def add_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS: return MENU
-    await update.message.reply_text("Yangi vakansiya nomini yozing:", reply_markup=ReplyKeyboardRemove())
-    return ADD_JOB
-
-async def add_job_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    is_admin = user_id in ADMIN_IDS
+async def admin_type_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    target = update.message.text
+    if target == "⬅️ Back": return await admin_start_redirect(update, context)
+    context.user_data['admin_target'] = target.lower()
     
-    add_job_db(update.message.text) # Save to database
-    
-    await update.message.reply_text(
-        "✅ Vakansiya qo'shildi!", 
-        reply_markup=main_menu_keyboard(is_admin=is_admin) # <--- THIS IS KEY
-    )
-    return MENU
+    if target in ["Region", "Job"]:
+        await update.message.reply_text(f"Enter name for new {target}:", reply_markup=ReplyKeyboardRemove())
+        return ADMIN_INPUT_NAME
+    else:
+        parent_table = "regions" if target == "District" else "districts"
+        parents = db_query(f"SELECT name FROM {parent_table}")
+        buttons = [[p[0]] for p in parents]
+        await update.message.reply_text(f"Select parent {target}:", reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
+        return ADMIN_SELECT_PARENT
 
-async def remove_job_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS: return MENU
-    jobs = get_jobs()
-    if not jobs:
-        await update.message.reply_text("Ro'yxat bo'sh.")
-        return MENU
-    msg = "\n".join([f"{i+1}. {j}" for i, j in enumerate(jobs)])
-    await update.message.reply_text(f"O'chirish uchun raqamni yozing:\n\n{msg}", reply_markup=ReplyKeyboardRemove())
-    return REMOVE_JOB
+async def admin_parent_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['parent_name'] = update.message.text
+    await update.message.reply_text(f"Enter name for the new entry:", reply_markup=ReplyKeyboardRemove())
+    return ADMIN_INPUT_NAME
 
-async def remove_job_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    is_admin = user_id in ADMIN_IDS
+async def admin_save_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    name = update.message.text
+    target = context.user_data['admin_target']
     
-    try:
-        idx = int(update.message.text) - 1
-        if remove_job_db(idx):
-            await update.message.reply_text(
-                "❌ Vakansiya o'chirildi.", 
-                reply_markup=main_menu_keyboard(is_admin=is_admin) # Pass the admin check here
-            )
-        else:
-            await update.message.reply_text(
-                "Bunday raqamli vakansiya topilmadi.", 
-                reply_markup=main_menu_keyboard(is_admin=is_admin)
-            )
-    except:
-        await update.message.reply_text(
-            "Iltimos, faqat raqam yozing.", 
-            reply_markup=main_menu_keyboard(is_admin=is_admin)
-        )
-    return MENU
+    if target == "region":
+        db_execute("INSERT INTO regions (name) VALUES (?)", (name,))
+    elif target == "job":
+        db_execute("INSERT INTO jobs (title) VALUES (?)", (name,))
+    elif target == "district":
+        p_id = db_query("SELECT id FROM regions WHERE name = ?", (context.user_data['parent_name'],))[0][0]
+        db_execute("INSERT INTO districts (name, region_id) VALUES (?, ?)", (name, p_id))
+    elif target == "branch":
+        p_id = db_query("SELECT id FROM districts WHERE name = ?", (context.user_data['parent_name'],))[0][0]
+        db_execute("INSERT INTO branches (name, district_id) VALUES (?, ?)", (name, p_id))
+        
+    await update.message.reply_text(f"✅ {name} added!", reply_markup=admin_menu_kb())
+    return ADMIN_MENU
+
+async def admin_link_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    branches = db_query("SELECT name FROM branches")
+    buttons = [[b[0]] for b in branches]
+    await update.message.reply_text("Select Branch to add a job to:", reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
+    return ADMIN_LINK_JOB
+
+async def admin_link_job_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if 'link_branch' not in context.user_data:
+        context.user_data['link_branch'] = update.message.text
+        jobs = db_query("SELECT title FROM jobs")
+        buttons = [[j[0]] for j in jobs]
+        await update.message.reply_text("Select Job to link:", reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
+        return ADMIN_LINK_JOB
+    else:
+        job_title = update.message.text
+        branch_name = context.user_data['link_branch']
+        b_id = db_query("SELECT id FROM branches WHERE name = ?", (branch_name,))[0][0]
+        j_id = db_query("SELECT id FROM jobs WHERE title = ?", (job_title,))[0][0]
+        db_execute("INSERT INTO branch_jobs (branch_id, job_id) VALUES (?, ?)", (b_id, j_id))
+        context.user_data.pop('link_branch')
+        await update.message.reply_text("✅ Job linked to branch!", reply_markup=admin_menu_kb())
+        return ADMIN_MENU
+
+async def admin_start_redirect(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Admin Panel", reply_markup=admin_menu_kb())
+    return ADMIN_MENU
+
 # ---------------- Main ----------------
-
 def main():
     init_db()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -274,31 +243,34 @@ def main():
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler)],
-            VACANCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_vacancy)],
+            MENU: [
+                MessageHandler(filters.Regex("^🛠 Admin Panel$"), admin_start_redirect),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler)
+            ],
+            # User states
+            SELECT_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, job_selected)],
+            SELECT_REGION: [MessageHandler(filters.TEXT & ~filters.COMMAND, region_selected)],
+            SELECT_DISTRICT: [MessageHandler(filters.TEXT & ~filters.COMMAND, district_selected)],
+            SELECT_BRANCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, branch_selected)],
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-            BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_birthday)],
-            ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_address)],
-            CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_city)],
-            EDUCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_education)],
-            EXPERIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_experience)],
-            LAST_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_last_job)],
-            MARITAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_marital)],
-            SALARY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_salary)],
-            COMPUTER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_computer)],
             PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
-            ADD_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_job_finish)],
-            REMOVE_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, remove_job_finish)],
+            # Admin states
+            ADMIN_MENU: [
+                MessageHandler(filters.Regex("^➕ Add Data$"), admin_add_start),
+                MessageHandler(filters.Regex("^🔗 Link Job to Branch$"), admin_link_start),
+                MessageHandler(filters.Regex("^⬅️ Back to Main Menu$"), start)
+            ],
+            ADMIN_ADD_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_type_selected)],
+            ADMIN_SELECT_PARENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_parent_selected)],
+            ADMIN_INPUT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_save_data)],
+            ADMIN_LINK_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_link_job_selected)],
         },
-        fallbacks=[
-            CommandHandler("addjob", add_job_start),
-            CommandHandler("removejob", remove_job_start),
-            CommandHandler("cancel", start)
-        ],
+        fallbacks=[CommandHandler("start", start)],
     )
 
     app.add_handler(conv)
-    app.run_webhook(listen="0.0.0.0", port=PORT, url_path=BOT_TOKEN, webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
+    print("Bot is running...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()

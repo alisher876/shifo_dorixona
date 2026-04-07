@@ -8,6 +8,7 @@ from telegram.ext import (
     MessageHandler,
     ConversationHandler,
     ContextTypes,
+    PicklePersistence,
     filters,
 )
 
@@ -262,30 +263,54 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             return await show_regions(update, context)
         if level == "district":
             return await show_districts(update, context)
-        return await show_branches(update, context)
+        if level == "branch":
+            return await show_branches(update, context)
+        # fallback: unknown level → go home
+        await update.message.reply_text(
+            "Bekor qilindi.", reply_markup=main_menu_kb(update.effective_user.id)
+        )
+        return MENU
 
     try:
         if level == "region":
             db_execute("INSERT INTO regions (name) VALUES (?)", (name,))
+            await update.message.reply_text(f"✅ {name} qo'shildi!")
+            return await show_regions(update, context)
         elif level == "district":
+            region_id = context.user_data.get("region_id")
+            if not region_id:
+                await update.message.reply_text("⚠️ Viloyat tanlanmagan. /start dan boshlang.")
+                return MENU
             db_execute(
                 "INSERT INTO districts (name, region_id) VALUES (?, ?)",
-                (name, context.user_data["region_id"]),
+                (name, region_id),
             )
+            await update.message.reply_text(f"✅ {name} qo'shildi!")
+            return await show_districts(update, context)
         elif level == "branch":
+            district_id = context.user_data.get("district_id")
+            if not district_id:
+                await update.message.reply_text("⚠️ Tuman tanlanmagan. /start dan boshlang.")
+                return MENU
             db_execute(
                 "INSERT INTO branches (name, district_id) VALUES (?, ?)",
-                (name, context.user_data["district_id"]),
+                (name, district_id),
             )
-        await update.message.reply_text(f"✅ {name} qo'shildi!")
+            await update.message.reply_text(f"✅ {name} qo'shildi!")
+            return await show_branches(update, context)
+        else:
+            await update.message.reply_text("⚠️ Noma'lum holat. /start dan boshlang.")
+            return MENU
     except Exception as e:
+        logger.error(f"admin_input_handler error: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Xatolik: {e}")
-
-    if level == "region":
-        return await show_regions(update, context)
-    if level == "district":
-        return await show_districts(update, context)
-    return await show_branches(update, context)
+        if level == "region":
+            return await show_regions(update, context)
+        if level == "district":
+            return await show_districts(update, context)
+        if level == "branch":
+            return await show_branches(update, context)
+        return MENU
 
 
 async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -322,10 +347,25 @@ async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # ──────────────────────────── Main ─────────────────────────────
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log all unhandled exceptions so they appear in Railway logs."""
+    logger.error("Unhandled exception:", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        await update.effective_message.reply_text(
+            "⚠️ Ichki xatolik yuz berdi. /start dan qayta boshlang."
+        )
+
+
 def main():
     init_db()
 
-    app = Application.builder().token(TOKEN).build()
+    persistence = PicklePersistence(filepath="bot_state.pickle")
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .persistence(persistence)
+        .build()
+    )
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -338,9 +378,12 @@ def main():
             ],
         },
         fallbacks=[CommandHandler("start", start)],
+        persistent=True,
+        name="main_conv",
     )
 
     app.add_handler(conv)
+    app.add_error_handler(error_handler)
     logger.info("Bot ishga tushdi...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import logging
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -33,8 +33,16 @@ logger.info(f"ADMIN_IDS loaded: {ADMIN_IDS}")
     ADMIN_INPUT,
     ADMIN_DELETE_CONFIRM,
     USER_NAV,
-    USER_APPLY,
-) = range(6)
+    APPLY_NAME,
+    APPLY_BIRTHDAY,
+    APPLY_ADDRESS,
+    APPLY_EDUCATION,
+    APPLY_EXPERIENCE,
+    APPLY_LAST_JOB,
+    APPLY_SALARY,
+    APPLY_SKILL,
+    APPLY_PHONE,
+) = range(14)
 
 # ─────────────────────── Database helpers ──────────────────────
 def init_db():
@@ -105,6 +113,15 @@ def user_nav_kb(items) -> ReplyKeyboardMarkup:
     rows.append(["⬅️ Back", "🏠 Main Menu"])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
+def cancel_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["❌ Bekor qilish"]], resize_keyboard=True)
+
+def phone_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("📱 Raqamni yuborish", request_contact=True)], ["❌ Bekor qilish"]],
+        resize_keyboard=True
+    )
+
 # ──────────────────── Admin navigation logic ────────────────────
 async def show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["level"] = "region"
@@ -114,7 +131,6 @@ async def show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=navigation_kb(items, "Viloyat"),
     )
     return ADMIN_NAV
-
 
 async def show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["level"] = "district"
@@ -132,7 +148,6 @@ async def show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=navigation_kb(items, "Tuman"),
     )
     return ADMIN_NAV
-
 
 async def show_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["level"] = "branch"
@@ -168,7 +183,6 @@ async def show_admin_vacancies(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     return ADMIN_NAV
 
-
 async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
     level = context.user_data.get("level")
     if level == "region":
@@ -195,7 +209,6 @@ async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ──────────────────── User navigation logic (Inverted Flow) ────────────────────
 async def user_show_vacancies_first(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["user_level"] = "vacancy_title"
-    # Return (title, title) since we need the title for both displaying and navigating
     items = db_query("SELECT DISTINCT title, title FROM vacancies")
     
     if not items:
@@ -358,42 +371,157 @@ async def user_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if res:
             context.user_data.update({"sel_branch_id": res[0][0], "sel_branch_name": text})
             
-            # Start application process
             await update.message.reply_text(
                 f"Siz *{context.user_data['sel_branch_name']}* filialidagi *{context.user_data['sel_vacancy_title']}* vakansiyasini tanladingiz.\n\n"
-                "📝 Iltimos, o'zingiz haqingizdagi ma'lumotlarni yuboring:\n"
-                "(F.I.SH, telefon raqamingiz, tajribangiz haqida yozing va jo'nating)",
-                reply_markup=ReplyKeyboardMarkup([["❌ Bekor qilish"]], resize_keyboard=True),
+                "📝 Iltimos, so'rovnomani to'ldiring.\n\n"
+                "👤 Ism va familiyangizni kiriting:",
+                reply_markup=cancel_kb(),
                 parse_mode="Markdown"
             )
-            return USER_APPLY
+            return APPLY_NAME
         await update.message.reply_text("⚠️ Noto'g'ri tanlov.")
 
     return USER_NAV
 
-async def user_apply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ──────────────────── Questionnaire Handlers ───────────────────
+def check_cancel(text, user_id):
+    if text == "❌ Bekor qilish":
+        return True
+    return False
+
+async def apply_name_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_name"] = text
+    await update.message.reply_text("🗓️ Tug‘ilgan sanangiz (kun/oy/yil):", reply_markup=cancel_kb())
+    return APPLY_BIRTHDAY
+
+async def apply_birthday_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_birthday"] = text
+    await update.message.reply_text("📍 Yashash manzilingiz?", reply_markup=cancel_kb())
+    return APPLY_ADDRESS
+
+async def apply_address_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_address"] = text
+    await update.message.reply_text("🎓 Ta’lim darajangiz?", reply_markup=cancel_kb())
+    return APPLY_EDUCATION
+
+async def apply_education_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_education"] = text
+    await update.message.reply_text("⏳ Ish tajribangiz qancha?(bo'lmasa \"Yo'q\" deb javob bering)", reply_markup=cancel_kb())
+    return APPLY_EXPERIENCE
+
+async def apply_experience_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_experience"] = text
+    await update.message.reply_text("💼 Oxirgi ish joyingiz va lavozimingiz?(bo'lmasa \"Yo'q\" deb javob bering)", reply_markup=cancel_kb())
+    return APPLY_LAST_JOB
+
+async def apply_last_job_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_last_job"] = text
+    await update.message.reply_text("💸 Kutilayotgan maosh?", reply_markup=cancel_kb())
+    return APPLY_SALARY
+
+async def apply_salary_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_salary"] = text
+    await update.message.reply_text("💻 Kompyuter bilimi (1-4 gacha baholang):", reply_markup=cancel_kb())
+    return APPLY_SKILL
+
+async def apply_skill_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_skill"] = text
+    await update.message.reply_text("☎️ Telefon raqamingiz:", reply_markup=phone_kb())
+    return APPLY_PHONE
+
+async def apply_phone_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
     
-    if text == "❌ Bekor qilish":
+    # Check if they texted Cancel
+    if text and check_cancel(text, user_id):
         await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
         return MENU
 
-    # Send to all admins
+    # Extract phone from contact or text
+    phone = ""
+    if update.message.contact:
+        phone = update.message.contact.phone_number
+    elif text:
+        phone = text
+        
+    if not phone:
+        await update.message.reply_text("Iltimos, telefon raqamingizni yuboring:", reply_markup=phone_kb())
+        return APPLY_PHONE
+        
+    context.user_data["app_phone"] = phone
+    
+    # Compile and send
     vacancy = context.user_data.get("sel_vacancy_title", "Noma'lum")
     branch = context.user_data.get("sel_branch_name", "Noma'lum")
     district = context.user_data.get("sel_district_name", "Noma'lum")
     region = context.user_data.get("sel_region_name", "Noma'lum")
-    
     uname = update.effective_user.username or "Noma'lum"
-    
+
     admin_msg = (
         f"📩 *YANGI ARIZA TUSHDI*\n\n"
         f"📍 Viloyat: {region}\n"
         f"🏙 Tuman: {district}\n"
         f"🏪 Filial: {branch}\n"
         f"💼 Vakansiya: {vacancy}\n\n"
-        f"👤 Nomzod ma'lumoti:\n{text}\n\n"
+        f"👥 *Nomzod Ma'lumotlari:*\n"
+        f"👤 Ism: {context.user_data.get('app_name')}\n"
+        f"🗓️ Tu'gilgan sana: {context.user_data.get('app_birthday')}\n"
+        f"📍 Manzil: {context.user_data.get('app_address')}\n"
+        f"🎓 Ta'lim: {context.user_data.get('app_education')}\n"
+        f"⏳ Tajriba: {context.user_data.get('app_experience')}\n"
+        f"💼 Oxirgi ish joyi: {context.user_data.get('app_last_job')}\n"
+        f"💸 Maosh: {context.user_data.get('app_salary')}\n"
+        f"💻 Kompyuter bilimi: {context.user_data.get('app_skill')}\n"
+        f"☎️ Telefon: {context.user_data.get('app_phone')}\n\n"
         f"Username: @{uname}"
     )
 
@@ -410,6 +538,7 @@ async def user_apply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return MENU
 
 
+# ──────────────────── Admin logic ────────────────────
 async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     level = context.user_data.get("level")
@@ -572,7 +701,15 @@ def main():
             ADMIN_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_input_handler)],
             ADMIN_DELETE_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_delete_handler)],
             USER_NAV: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_nav_handler)],
-            USER_APPLY: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_apply_handler)],
+            APPLY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_name_handler)],
+            APPLY_BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_birthday_handler)],
+            APPLY_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_address_handler)],
+            APPLY_EDUCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_education_handler)],
+            APPLY_EXPERIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_experience_handler)],
+            APPLY_LAST_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_last_job_handler)],
+            APPLY_SALARY: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_salary_handler)],
+            APPLY_SKILL: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_skill_handler)],
+            APPLY_PHONE: [MessageHandler(filters.ALL & ~filters.COMMAND, apply_phone_handler)],
         },
         fallbacks=[CommandHandler("start", start)],
     )

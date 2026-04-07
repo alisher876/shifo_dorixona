@@ -27,7 +27,14 @@ logger = logging.getLogger(__name__)
 logger.info(f"ADMIN_IDS loaded: {ADMIN_IDS}")
 
 # ───────────────────── Conversation states ─────────────────────
-MENU, ADMIN_NAV, ADMIN_INPUT, ADMIN_DELETE_CONFIRM = range(4)
+(
+    MENU,
+    ADMIN_NAV,
+    ADMIN_INPUT,
+    ADMIN_DELETE_CONFIRM,
+    USER_NAV,
+    USER_APPLY,
+) = range(6)
 
 # ─────────────────────── Database helpers ──────────────────────
 def init_db():
@@ -47,6 +54,11 @@ def init_db():
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             name        TEXT NOT NULL,
             district_id INTEGER REFERENCES districts(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS vacancies (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            title       TEXT NOT NULL,
+            branch_id   INTEGER REFERENCES branches(id) ON DELETE CASCADE
         );
     """)
     conn.commit()
@@ -76,7 +88,7 @@ def is_admin(user_id: int) -> bool:
 
 
 def main_menu_kb(user_id: int) -> ReplyKeyboardMarkup:
-    buttons = [["🔍 Qidiruv", "📋 Barcha filiallar"]]
+    buttons = [["ℹ️ Kompaniya haqida", "💼 Bo'sh ish o'rinlari"]]
     if is_admin(user_id):
         buttons.append(["⚙️ Admin panel"])
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
@@ -88,10 +100,13 @@ def navigation_kb(items, label: str) -> ReplyKeyboardMarkup:
     rows.append(["⬅️ Back", "🏠 Main Menu"])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
+def user_nav_kb(items) -> ReplyKeyboardMarkup:
+    rows = [[item[1]] for item in items]
+    rows.append(["⬅️ Back", "🏠 Main Menu"])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 # ──────────────────── Admin navigation logic ────────────────────
 async def show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("show_regions called")
     context.user_data["level"] = "region"
     items = db_query("SELECT id, name FROM regions")
     await update.message.reply_text(
@@ -102,12 +117,10 @@ async def show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("show_districts called")
     context.user_data["level"] = "district"
     region_id = context.user_data.get("region_id")
     region_name = context.user_data.get("region_name", "?")
     if not region_id:
-        logger.warning("show_districts: region_id missing!")
         await update.message.reply_text(
             "⚠️ Viloyat tanlanmagan. /start dan boshlang.",
             reply_markup=main_menu_kb(update.effective_user.id),
@@ -122,12 +135,10 @@ async def show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("show_branches called")
     context.user_data["level"] = "branch"
     district_id = context.user_data.get("district_id")
     district_name = context.user_data.get("district_name", "?")
     if not district_id:
-        logger.warning("show_branches: district_id missing!")
         await update.message.reply_text(
             "⚠️ Tuman tanlanmagan. /start dan boshlang.",
             reply_markup=main_menu_kb(update.effective_user.id),
@@ -140,6 +151,23 @@ async def show_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ADMIN_NAV
 
+async def show_admin_vacancies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["level"] = "vacancy"
+    branch_id = context.user_data.get("branch_id")
+    branch_name = context.user_data.get("branch_name", "?")
+    if not branch_id:
+        await update.message.reply_text(
+            "⚠️ Filial tanlanmagan. /start dan boshlang.",
+            reply_markup=main_menu_kb(update.effective_user.id),
+        )
+        return MENU
+    items = db_query("SELECT id, title FROM vacancies WHERE branch_id = ?", (branch_id,))
+    await update.message.reply_text(
+        f"💼 {branch_name} bo'sh ish o'rinlari:",
+        reply_markup=navigation_kb(items, "Vakansiya"),
+    )
+    return ADMIN_NAV
+
 
 async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
     level = context.user_data.get("level")
@@ -147,14 +175,13 @@ async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE
         items = db_query("SELECT id, name FROM regions")
     elif level == "district":
         region_id = context.user_data.get("region_id")
-        items = db_query(
-            "SELECT id, name FROM districts WHERE region_id = ?", (region_id,)
-        ) if region_id else []
-    else:
+        items = db_query("SELECT id, name FROM districts WHERE region_id = ?", (region_id,)) if region_id else []
+    elif level == "branch":
         district_id = context.user_data.get("district_id")
-        items = db_query(
-            "SELECT id, name FROM branches WHERE district_id = ?", (district_id,)
-        ) if district_id else []
+        items = db_query("SELECT id, name FROM branches WHERE district_id = ?", (district_id,)) if district_id else []
+    else: # vacancy
+        branch_id = context.user_data.get("branch_id")
+        items = db_query("SELECT id, title FROM vacancies WHERE branch_id = ?", (branch_id,)) if branch_id else []
 
     kb = [[f"🗑 {i[1]}"] for i in items]
     kb.append(["⬅️ Back"])
@@ -165,10 +192,56 @@ async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ADMIN_DELETE_CONFIRM
 
 
+# ──────────────────── User navigation logic ────────────────────
+async def user_show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["user_level"] = "region"
+    items = db_query("SELECT id, name FROM regions")
+    await update.message.reply_text(
+        "📍 Viloyatni tanlang:",
+        reply_markup=user_nav_kb(items),
+    )
+    return USER_NAV
+
+async def user_show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["user_level"] = "district"
+    region_id = context.user_data.get("user_region_id")
+    items = db_query("SELECT id, name FROM districts WHERE region_id = ?", (region_id,))
+    await update.message.reply_text(
+        "🏙 Tumanni tanlang:",
+        reply_markup=user_nav_kb(items),
+    )
+    return USER_NAV
+
+async def user_show_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["user_level"] = "branch"
+    district_id = context.user_data.get("user_district_id")
+    items = db_query("SELECT id, name FROM branches WHERE district_id = ?", (district_id,))
+    await update.message.reply_text(
+        "🏪 Filialni tanlang:",
+        reply_markup=user_nav_kb(items),
+    )
+    return USER_NAV
+
+async def user_show_vacancies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["user_level"] = "vacancy"
+    branch_id = context.user_data.get("user_branch_id")
+    items = db_query("SELECT id, title FROM vacancies WHERE branch_id = ?", (branch_id,))
+    
+    if not items:
+        await update.message.reply_text(
+            "😔 Hozircha bu filialda bo'sh ish o'rinlari yo'q.",
+            reply_markup=user_nav_kb(items)
+        )
+    else:
+        await update.message.reply_text(
+            "💼 Qiziqtirgan vakansiyani tanlang:",
+            reply_markup=user_nav_kb(items),
+        )
+    return USER_NAV
+
 # ───────────────────────── Handlers ────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    logger.info(f"start: user_id={user.id}, is_admin={is_admin(user.id)}")
     await update.message.reply_text(
         f"Assalomu alaykum, {user.first_name}! 👋\nShifo Do'rxona botiga xush kelibsiz.",
         reply_markup=main_menu_kb(user.id),
@@ -179,41 +252,118 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
-    logger.info(f"menu_handler: user_id={user_id}, text={text!r}")
 
-    if text == "🔍 Qidiruv":
+    if text == "ℹ️ Kompaniya haqida":
         await update.message.reply_text(
-            "🔍 Filial nomini kiriting:", reply_markup=ReplyKeyboardRemove()
+            "🏢 *Shifo Dorixona*\n\n"
+            "Biz xalqimizga eng sifatli dori vositalarini hamyonbop narxlarda yetkazib berishni maqsad qilgan dorixonalar tizimimiz!\n\n"
+            "Ma'lumot uchun raqam: +99899 123-45-67",
+            parse_mode="Markdown"
         )
         return MENU
 
-    if text == "📋 Barcha filiallar":
-        branches = db_query(
-            """SELECT b.name, d.name, r.name
-               FROM branches b
-               JOIN districts d ON b.district_id = d.id
-               JOIN regions r ON d.region_id = r.id
-               ORDER BY r.name, d.name, b.name"""
-        )
-        if not branches:
-            await update.message.reply_text(
-                "Hozircha filiallar yo'q.", reply_markup=main_menu_kb(user_id)
-            )
-        else:
-            lines = [f"🏪 {b[0]} — {b[1]}, {b[2]}" for b in branches]
-            await update.message.reply_text(
-                "📋 Barcha filiallar:\n\n" + "\n".join(lines),
-                reply_markup=main_menu_kb(user_id),
-            )
-        return MENU
+    if text == "💼 Bo'sh ish o'rinlari":
+        return await user_show_regions(update, context)
 
     if text == "⚙️ Admin panel" and is_admin(user_id):
         return await show_regions(update, context)
 
-    # Free-text search
-    results = db_query("SELECT name FROM branches WHERE name LIKE ?", (f"%{text}%",))
-    msg = ("Topildi:\n" + "\n".join(f"🏪 {r[0]}" for r in results)) if results else "❌ Hech narsa topilmadi."
-    await update.message.reply_text(msg, reply_markup=main_menu_kb(user_id))
+    return MENU
+
+async def user_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_level = context.user_data.get("user_level")
+    user_id = update.effective_user.id
+
+    if text == "🏠 Main Menu":
+        await update.message.reply_text("Menyuga qaytildi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+
+    if text == "⬅️ Back":
+        if user_level == "region":
+            await update.message.reply_text("Menyuga qaytildi.", reply_markup=main_menu_kb(user_id))
+            return MENU
+        if user_level == "district":
+            return await user_show_regions(update, context)
+        if user_level == "branch":
+            return await user_show_districts(update, context)
+        if user_level == "vacancy":
+            return await user_show_branches(update, context)
+
+    # Drill-down
+    if user_level == "region":
+        res = db_query("SELECT id FROM regions WHERE name = ? COLLATE NOCASE", (text,))
+        if res:
+            context.user_data.update({"user_region_id": res[0][0], "user_region_name": text})
+            return await user_show_districts(update, context)
+        await update.message.reply_text("⚠️ Noto'g'ri tanlov. Iltimos, menyudan tanlang.")
+        
+    elif user_level == "district":
+        res = db_query("SELECT id FROM districts WHERE name = ? COLLATE NOCASE", (text,))
+        if res:
+            context.user_data.update({"user_district_id": res[0][0], "user_district_name": text})
+            return await user_show_branches(update, context)
+        await update.message.reply_text("⚠️ Noto'g'ri tanlov. Iltimos, menyudan tanlang.")
+
+    elif user_level == "branch":
+        res = db_query("SELECT id FROM branches WHERE name = ? COLLATE NOCASE", (text,))
+        if res:
+            context.user_data.update({"user_branch_id": res[0][0], "user_branch_name": text})
+            return await user_show_vacancies(update, context)
+        await update.message.reply_text("⚠️ Noto'g'ri tanlov. Iltimos, menyudan tanlang.")
+
+    elif user_level == "vacancy":
+        res = db_query("SELECT id, title FROM vacancies WHERE title = ? AND branch_id = ? COLLATE NOCASE", (text, context.user_data.get("user_branch_id")))
+        if res:
+            context.user_data.update({"user_vacancy_id": res[0][0], "user_vacancy_name": res[0][1]})
+            
+            # Start application process
+            await update.message.reply_text(
+                f"Siz *{context.user_data['user_branch_name']}* filialidagi *{res[0][1]}* vakansiyasini tanladingiz.\n\n"
+                "📝 Iltimos, o'zingiz haqingizdagi ma'lumotlarni yuboring:\n"
+                "(F.I.SH, telefon raqamingiz, tajribangiz haqida yozing va jo'nating)",
+                reply_markup=ReplyKeyboardMarkup([["❌ Bekor qilish"]], resize_keyboard=True),
+                parse_mode="Markdown"
+            )
+            return USER_APPLY
+        await update.message.reply_text("⚠️ Noto'g'ri tanlov.")
+
+    return USER_NAV
+
+async def user_apply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    
+    if text == "❌ Bekor qilish":
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+
+    # Send to all admins
+    vacancy = context.user_data.get("user_vacancy_name", "Noma'lum")
+    branch = context.user_data.get("user_branch_name", "Noma'lum")
+    district = context.user_data.get("user_district_name", "Noma'lum")
+    region = context.user_data.get("user_region_name", "Noma'lum")
+    
+    admin_msg = (
+        f"📩 *YANGI ARIZA TUSHDI*\n\n"
+        f"📍 Viloyat: {region}\n"
+        f"🏙 Tuman: {district}\n"
+        f"🏪 Filial: {branch}\n"
+        f"💼 Vakansiya: {vacancy}\n\n"
+        f"👤 Nomzod ma'lumoti:\n{text}\n\n"
+        f"Username: @{update.effective_user.username or 'Noma\\'lum'}"
+    )
+
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.send_message(chat_id=admin_id, text=admin_msg, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Failed to send to admin {admin_id}: {e}")
+
+    await update.message.reply_text(
+        "✅ Arizangiz muvaffaqiyatli yuborildi! Tez orada siz bilan bog'lanamiz.",
+        reply_markup=main_menu_kb(user_id)
+    )
     return MENU
 
 
@@ -221,24 +371,21 @@ async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     level = context.user_data.get("level")
     user_id = update.effective_user.id
-    logger.info(f"admin_nav_handler: level={level!r}, text={text!r}")
 
     if text == "🏠 Main Menu":
-        await update.message.reply_text(
-            "Menyuga qaytildi.", reply_markup=main_menu_kb(user_id)
-        )
+        await update.message.reply_text("Menyuga qaytildi.", reply_markup=main_menu_kb(user_id))
         return MENU
 
     if text == "⬅️ Back":
         if level == "region":
-            await update.message.reply_text(
-                "Bekor qilindi.", reply_markup=main_menu_kb(user_id)
-            )
+            await update.message.reply_text("Bekor qilindi.", reply_markup=main_menu_kb(user_id))
             return MENU
         if level == "district":
             return await show_regions(update, context)
         if level == "branch":
             return await show_districts(update, context)
+        if level == "vacancy":
+            return await show_branches(update, context)
 
     if text.startswith("➕ Add"):
         kb = [["❌ Cancel"]]
@@ -257,43 +404,36 @@ async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if res:
             context.user_data.update({"region_id": res[0][0], "region_name": text})
             return await show_districts(update, context)
-        # Not found
-        logger.warning(f"admin_nav_handler: region '{text}' not found in DB")
-        await update.message.reply_text(
-            f"❌ '{text}' nomli viloyat topilmadi.\n\nYangi qo'shish uchun '➕ Add' tugmasini bosing."
-        )
+        await update.message.reply_text(f"❌ '{text}' topilmadi.\nYangi qo'shish uchun '➕ Add' bosing.")
         return await show_regions(update, context)
     elif level == "district":
         res = db_query("SELECT id FROM districts WHERE name = ? COLLATE NOCASE", (text,))
         if res:
             context.user_data.update({"district_id": res[0][0], "district_name": text})
             return await show_branches(update, context)
-        # Not found
-        logger.warning(f"admin_nav_handler: district '{text}' not found in DB")
-        await update.message.reply_text(
-            f"❌ '{text}' nomli tuman topilmadi.\n\nYangi qo'shish uchun '➕ Add Tuman' tugmasini bosing."
-        )
+        await update.message.reply_text(f"❌ '{text}' topilmadi.\nYangi qo'shish uchun '➕ Add' bosing.")
         return await show_districts(update, context)
+    elif level == "branch":
+        res = db_query("SELECT id FROM branches WHERE name = ? COLLATE NOCASE", (text,))
+        if res:
+            context.user_data.update({"branch_id": res[0][0], "branch_name": text})
+            return await show_admin_vacancies(update, context)
+        await update.message.reply_text(f"❌ '{text}' topilmadi.\nYangi qo'shish uchun '➕ Add' bosing.")
+        return await show_branches(update, context)
 
-    logger.info("admin_nav_handler: no match for any level, refreshing")
     return await show_regions(update, context)
 
 
 async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text
     level = context.user_data.get("level")
-    logger.info(f"admin_input_handler: level={level!r}, name={name!r}")
 
     if name == "❌ Cancel":
-        if level == "region":
-            return await show_regions(update, context)
-        if level == "district":
-            return await show_districts(update, context)
-        if level == "branch":
-            return await show_branches(update, context)
-        await update.message.reply_text(
-            "Bekor qilindi.", reply_markup=main_menu_kb(update.effective_user.id)
-        )
+        if level == "region": return await show_regions(update, context)
+        if level == "district": return await show_districts(update, context)
+        if level == "branch": return await show_branches(update, context)
+        if level == "vacancy": return await show_admin_vacancies(update, context)
+        await update.message.reply_text("Bekor qilindi.", reply_markup=main_menu_kb(update.effective_user.id))
         return MENU
 
     # Insert into DB
@@ -304,35 +444,21 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             inserted = True
         elif level == "district":
             region_id = context.user_data.get("region_id")
-            if not region_id:
-                await update.message.reply_text(
-                    "⚠️ Viloyat tanlanmagan. /start dan boshlang.",
-                    reply_markup=main_menu_kb(update.effective_user.id),
-                )
-                return MENU
-            db_execute(
-                "INSERT INTO districts (name, region_id) VALUES (?, ?)",
-                (name, region_id),
-            )
-            inserted = True
+            if region_id:
+                db_execute("INSERT INTO districts (name, region_id) VALUES (?, ?)", (name, region_id))
+                inserted = True
         elif level == "branch":
             district_id = context.user_data.get("district_id")
-            if not district_id:
-                await update.message.reply_text(
-                    "⚠️ Tuman tanlanmagan. /start dan boshlang.",
-                    reply_markup=main_menu_kb(update.effective_user.id),
-                )
-                return MENU
-            db_execute(
-                "INSERT INTO branches (name, district_id) VALUES (?, ?)",
-                (name, district_id),
-            )
-            inserted = True
+            if district_id:
+                db_execute("INSERT INTO branches (name, district_id) VALUES (?, ?)", (name, district_id))
+                inserted = True
+        elif level == "vacancy":
+            branch_id = context.user_data.get("branch_id")
+            if branch_id:
+                db_execute("INSERT INTO vacancies (title, branch_id) VALUES (?, ?)", (name, branch_id))
+                inserted = True
         else:
-            await update.message.reply_text(
-                "⚠️ Noma'lum holat. /start dan boshlang.",
-                reply_markup=main_menu_kb(update.effective_user.id),
-            )
+            await update.message.reply_text("⚠️ Noma'lum holat.", reply_markup=main_menu_kb(update.effective_user.id))
             return MENU
     except Exception as e:
         logger.error(f"DB insert error: {e}", exc_info=True)
@@ -341,45 +467,44 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if inserted:
         await update.message.reply_text(f"✅ {name} qo'shildi!")
 
-    # Navigate back to the current level
-    if level == "region":
-        return await show_regions(update, context)
-    if level == "district":
-        return await show_districts(update, context)
-    return await show_branches(update, context)
+    if level == "region": return await show_regions(update, context)
+    if level == "district": return await show_districts(update, context)
+    if level == "branch": return await show_branches(update, context)
+    return await show_admin_vacancies(update, context)
 
 
 async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     level = context.user_data.get("level")
-    logger.info(f"admin_delete_handler: level={level!r}, text={text!r}")
 
     if text == "⬅️ Back":
-        if level == "region":
-            return await show_regions(update, context)
-        if level == "district":
-            return await show_districts(update, context)
-        return await show_branches(update, context)
+        if level == "region": return await show_regions(update, context)
+        if level == "district": return await show_districts(update, context)
+        if level == "branch": return await show_branches(update, context)
+        if level == "vacancy": return await show_admin_vacancies(update, context)
+        return MENU
 
     item_name = text[2:].strip() if text.startswith("🗑") else text
-    table = (
-        "regions" if level == "region"
-        else "districts" if level == "district"
-        else "branches"
-    )
-
+    
     try:
-        db_execute(f"DELETE FROM {table} WHERE name = ?", (item_name,))
+        if level == "region":
+            db_execute("DELETE FROM regions WHERE name = ?", (item_name,))
+        elif level == "district":
+            db_execute("DELETE FROM districts WHERE name = ?", (item_name,))
+        elif level == "branch":
+            db_execute("DELETE FROM branches WHERE name = ?", (item_name,))
+        else:
+            db_execute("DELETE FROM vacancies WHERE title = ?", (item_name,))
+        
         await update.message.reply_text(f"✅ O'chirildi: {item_name}")
     except Exception as e:
         logger.error(f"DB delete error: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Xatolik: {e}")
 
-    if level == "region":
-        return await show_regions(update, context)
-    if level == "district":
-        return await show_districts(update, context)
-    return await show_branches(update, context)
+    if level == "region": return await show_regions(update, context)
+    if level == "district": return await show_districts(update, context)
+    if level == "branch": return await show_branches(update, context)
+    return await show_admin_vacancies(update, context)
 
 
 # ──────────────────────────── Main ─────────────────────────────
@@ -402,9 +527,9 @@ def main():
             MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler)],
             ADMIN_NAV: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_nav_handler)],
             ADMIN_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_input_handler)],
-            ADMIN_DELETE_CONFIRM: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_delete_handler)
-            ],
+            ADMIN_DELETE_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_delete_handler)],
+            USER_NAV: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_nav_handler)],
+            USER_APPLY: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_apply_handler)],
         },
         fallbacks=[CommandHandler("start", start)],
     )

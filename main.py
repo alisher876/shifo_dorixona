@@ -309,7 +309,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not vacancies:
             await update.message.reply_text("😔 Hozircha bo'sh ish o'rinlari yo'q.", reply_markup=main_menu_kb(user_id))
         else:
-            lines = [f"💼 {v[0]} — {v[1]} / {v[2]} / {v[3]}" for v in vacancies]
+            lines = [f"🔹 {v[0]} — {v[1]} / {v[2]} / {v[3]}" for v in vacancies]
             msg = "📋 Barcha ochiq vakansiyalar:\n\n" + "\n".join(lines)
             if len(msg) > 4000:
                 msg = msg[:4000] + "\n... (va boshqalar)"
@@ -360,14 +360,14 @@ async def user_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Noto'g'ri tanlov. Iltimos, menyudan tanlang.")
 
     elif user_level == "vacancy_district":
-        res = db_query("SELECT id FROM districts WHERE name = ? COLLATE NOCASE", (text,))
+        res = db_query("SELECT id FROM districts WHERE name = ? COLLATE NOCASE AND region_id = ?", (text, context.user_data.get("sel_region_id")))
         if res:
             context.user_data.update({"sel_district_id": res[0][0], "sel_district_name": text})
             return await user_show_filtered_branches(update, context)
         await update.message.reply_text("⚠️ Noto'g'ri tanlov. Iltimos, menyudan tanlang.")
 
     elif user_level == "vacancy_branch":
-        res = db_query("SELECT id FROM branches WHERE name = ? COLLATE NOCASE", (text,))
+        res = db_query("SELECT id FROM branches WHERE name = ? COLLATE NOCASE AND district_id = ?", (text, context.user_data.get("sel_district_id")))
         if res:
             context.user_data.update({"sel_branch_id": res[0][0], "sel_branch_name": text})
             
@@ -579,14 +579,14 @@ async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ '{text}' topilmadi.\nYangi qo'shish uchun '➕ Add' bosing.")
         return await show_regions(update, context)
     elif level == "district":
-        res = db_query("SELECT id FROM districts WHERE name = ? COLLATE NOCASE", (text,))
+        res = db_query("SELECT id FROM districts WHERE name = ? COLLATE NOCASE AND region_id = ?", (text, context.user_data.get("region_id")))
         if res:
             context.user_data.update({"district_id": res[0][0], "district_name": text})
             return await show_branches(update, context)
         await update.message.reply_text(f"❌ '{text}' topilmadi.\nYangi qo'shish uchun '➕ Add' bosing.")
         return await show_districts(update, context)
     elif level == "branch":
-        res = db_query("SELECT id FROM branches WHERE name = ? COLLATE NOCASE", (text,))
+        res = db_query("SELECT id FROM branches WHERE name = ? COLLATE NOCASE AND district_id = ?", (text, context.user_data.get("district_id")))
         if res:
             context.user_data.update({"branch_id": res[0][0], "branch_name": text})
             return await show_admin_vacancies(update, context)

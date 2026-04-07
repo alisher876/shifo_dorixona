@@ -13,7 +13,7 @@ from telegram.ext import (
 
 # ─────────────────────────── Config ───────────────────────────
 TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-ADMIN_IDS_ENV = os.environ.get("ADMIN_IDS", "")
+ADMIN_IDS_ENV = os.environ.get("ADMIN_ID", "")
 ADMIN_IDS = [int(x) for x in ADMIN_IDS_ENV.split(",") if x.strip().isdigit()]
 
 DB_PATH = "shifo.db"

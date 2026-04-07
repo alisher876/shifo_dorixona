@@ -253,18 +253,26 @@ async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Drill-down
     if level == "region":
-        res = db_query("SELECT id FROM regions WHERE name = ?", (text,))
+        res = db_query("SELECT id FROM regions WHERE name = ? COLLATE NOCASE", (text,))
         if res:
             context.user_data.update({"region_id": res[0][0], "region_name": text})
             return await show_districts(update, context)
+        # Not found — DB may have been reset. Refresh list.
+        logger.warning(f"admin_nav_handler: region '{text}' not found in DB, refreshing list")
+        await update.message.reply_text("⚠️ Ma'lumotlar yangilandi, qayta tanlang:")
+        return await show_regions(update, context)
     elif level == "district":
-        res = db_query("SELECT id FROM districts WHERE name = ?", (text,))
+        res = db_query("SELECT id FROM districts WHERE name = ? COLLATE NOCASE", (text,))
         if res:
             context.user_data.update({"district_id": res[0][0], "district_name": text})
             return await show_branches(update, context)
+        # Not found — refresh list
+        logger.warning(f"admin_nav_handler: district '{text}' not found in DB, refreshing list")
+        await update.message.reply_text("⚠️ Ma'lumotlar yangilandi, qayta tanlang:")
+        return await show_districts(update, context)
 
-    logger.info(f"admin_nav_handler: no match, staying in ADMIN_NAV")
-    return ADMIN_NAV
+    logger.info("admin_nav_handler: no match for any level, refreshing")
+    return await show_regions(update, context)
 
 
 async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

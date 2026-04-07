@@ -344,6 +344,8 @@ async def user_apply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     district = context.user_data.get("user_district_name", "Noma'lum")
     region = context.user_data.get("user_region_name", "Noma'lum")
     
+    uname = update.effective_user.username or "Noma'lum"
+    
     admin_msg = (
         f"📩 *YANGI ARIZA TUSHDI*\n\n"
         f"📍 Viloyat: {region}\n"
@@ -351,7 +353,7 @@ async def user_apply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"🏪 Filial: {branch}\n"
         f"💼 Vakansiya: {vacancy}\n\n"
         f"👤 Nomzod ma'lumoti:\n{text}\n\n"
-        f"Username: @{update.effective_user.username or 'Noma\\'lum'}"
+        f"Username: @{uname}"
     )
 
     for admin_id in ADMIN_IDS:

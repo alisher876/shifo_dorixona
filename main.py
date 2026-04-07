@@ -88,7 +88,7 @@ def is_admin(user_id: int) -> bool:
 
 
 def main_menu_kb(user_id: int) -> ReplyKeyboardMarkup:
-    buttons = [["ℹ️ Kompaniya haqida", "💼 Bo'sh ish o'rinlari"]]
+    buttons = [["ℹ️ Kompaniya haqida", "📝 Ariza qoldirish"], ["💼 Bo'sh ish o'rinlari"]]
     if is_admin(user_id):
         buttons.append(["⚙️ Admin panel"])
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
@@ -192,51 +192,73 @@ async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ADMIN_DELETE_CONFIRM
 
 
-# ──────────────────── User navigation logic ────────────────────
-async def user_show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["user_level"] = "region"
-    items = db_query("SELECT id, name FROM regions")
-    await update.message.reply_text(
-        "📍 Viloyatni tanlang:",
-        reply_markup=user_nav_kb(items),
-    )
-    return USER_NAV
-
-async def user_show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["user_level"] = "district"
-    region_id = context.user_data.get("user_region_id")
-    items = db_query("SELECT id, name FROM districts WHERE region_id = ?", (region_id,))
-    await update.message.reply_text(
-        "🏙 Tumanni tanlang:",
-        reply_markup=user_nav_kb(items),
-    )
-    return USER_NAV
-
-async def user_show_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["user_level"] = "branch"
-    district_id = context.user_data.get("user_district_id")
-    items = db_query("SELECT id, name FROM branches WHERE district_id = ?", (district_id,))
-    await update.message.reply_text(
-        "🏪 Filialni tanlang:",
-        reply_markup=user_nav_kb(items),
-    )
-    return USER_NAV
-
-async def user_show_vacancies(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["user_level"] = "vacancy"
-    branch_id = context.user_data.get("user_branch_id")
-    items = db_query("SELECT id, title FROM vacancies WHERE branch_id = ?", (branch_id,))
+# ──────────────────── User navigation logic (Inverted Flow) ────────────────────
+async def user_show_vacancies_first(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["user_level"] = "vacancy_title"
+    # Return (title, title) since we need the title for both displaying and navigating
+    items = db_query("SELECT DISTINCT title, title FROM vacancies")
     
     if not items:
         await update.message.reply_text(
-            "😔 Hozircha bu filialda bo'sh ish o'rinlari yo'q.",
-            reply_markup=user_nav_kb(items)
+            "😔 Hozircha bo'sh ish o'rinlari yo'q.",
+            reply_markup=main_menu_kb(update.effective_user.id)
         )
-    else:
-        await update.message.reply_text(
-            "💼 Qiziqtirgan vakansiyani tanlang:",
-            reply_markup=user_nav_kb(items),
-        )
+        return MENU
+        
+    await update.message.reply_text(
+        "💼 Qaysi vakansiya bo'yicha ariza qoldirmoqchisiz?",
+        reply_markup=user_nav_kb(items),
+    )
+    return USER_NAV
+
+async def user_show_filtered_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["user_level"] = "vacancy_region"
+    title = context.user_data.get("sel_vacancy_title")
+    items = db_query("""
+        SELECT DISTINCT r.id, r.name 
+        FROM regions r
+        JOIN districts d ON r.id = d.region_id
+        JOIN branches b ON d.id = b.district_id
+        JOIN vacancies v ON b.id = v.branch_id
+        WHERE v.title = ? COLLATE NOCASE
+    """, (title,))
+    await update.message.reply_text(
+        "📍 Qaysi viloyatda ishlashni xohlaysiz?",
+        reply_markup=user_nav_kb(items),
+    )
+    return USER_NAV
+
+async def user_show_filtered_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["user_level"] = "vacancy_district"
+    title = context.user_data.get("sel_vacancy_title")
+    region_id = context.user_data.get("sel_region_id")
+    items = db_query("""
+        SELECT DISTINCT d.id, d.name 
+        FROM districts d
+        JOIN branches b ON d.id = b.district_id
+        JOIN vacancies v ON b.id = v.branch_id
+        WHERE v.title = ? COLLATE NOCASE AND d.region_id = ?
+    """, (title, region_id))
+    await update.message.reply_text(
+        "🏙 Qaysi tumanda ishlashni xohlaysiz?",
+        reply_markup=user_nav_kb(items),
+    )
+    return USER_NAV
+
+async def user_show_filtered_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["user_level"] = "vacancy_branch"
+    title = context.user_data.get("sel_vacancy_title")
+    district_id = context.user_data.get("sel_district_id")
+    items = db_query("""
+        SELECT DISTINCT b.id, b.name 
+        FROM branches b
+        JOIN vacancies v ON b.id = v.branch_id
+        WHERE v.title = ? COLLATE NOCASE AND b.district_id = ?
+    """, (title, district_id))
+    await update.message.reply_text(
+        "🏪 Qaysi filialda ishlashni xohlaysiz?",
+        reply_markup=user_nav_kb(items),
+    )
     return USER_NAV
 
 # ───────────────────────── Handlers ────────────────────────────
@@ -263,7 +285,26 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return MENU
 
     if text == "💼 Bo'sh ish o'rinlari":
-        return await user_show_regions(update, context)
+        vacancies = db_query("""
+            SELECT v.title, b.name, d.name, r.name 
+            FROM vacancies v 
+            JOIN branches b ON v.branch_id = b.id 
+            JOIN districts d ON b.district_id = d.id 
+            JOIN regions r ON d.region_id = r.id
+            ORDER BY v.title, r.name, d.name, b.name
+        """)
+        if not vacancies:
+            await update.message.reply_text("😔 Hozircha bo'sh ish o'rinlari yo'q.", reply_markup=main_menu_kb(user_id))
+        else:
+            lines = [f"💼 {v[0]} — {v[1]} / {v[2]} / {v[3]}" for v in vacancies]
+            msg = "📋 Barcha ochiq vakansiyalar:\n\n" + "\n".join(lines)
+            if len(msg) > 4000:
+                msg = msg[:4000] + "\n... (va boshqalar)"
+            await update.message.reply_text(msg, reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    if text == "📝 Ariza qoldirish":
+        return await user_show_vacancies_first(update, context)
 
     if text == "⚙️ Admin panel" and is_admin(user_id):
         return await show_regions(update, context)
@@ -280,46 +321,46 @@ async def user_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return MENU
 
     if text == "⬅️ Back":
-        if user_level == "region":
+        if user_level == "vacancy_title":
             await update.message.reply_text("Menyuga qaytildi.", reply_markup=main_menu_kb(user_id))
             return MENU
-        if user_level == "district":
-            return await user_show_regions(update, context)
-        if user_level == "branch":
-            return await user_show_districts(update, context)
-        if user_level == "vacancy":
-            return await user_show_branches(update, context)
+        if user_level == "vacancy_region":
+            return await user_show_vacancies_first(update, context)
+        if user_level == "vacancy_district":
+            return await user_show_filtered_regions(update, context)
+        if user_level == "vacancy_branch":
+            return await user_show_filtered_districts(update, context)
 
     # Drill-down
-    if user_level == "region":
-        res = db_query("SELECT id FROM regions WHERE name = ? COLLATE NOCASE", (text,))
+    if user_level == "vacancy_title":
+        res = db_query("SELECT id FROM vacancies WHERE title = ? COLLATE NOCASE LIMIT 1", (text,))
         if res:
-            context.user_data.update({"user_region_id": res[0][0], "user_region_name": text})
-            return await user_show_districts(update, context)
+            context.user_data.update({"sel_vacancy_title": text})
+            return await user_show_filtered_regions(update, context)
         await update.message.reply_text("⚠️ Noto'g'ri tanlov. Iltimos, menyudan tanlang.")
         
-    elif user_level == "district":
+    elif user_level == "vacancy_region":
+        res = db_query("SELECT id FROM regions WHERE name = ? COLLATE NOCASE", (text,))
+        if res:
+            context.user_data.update({"sel_region_id": res[0][0], "sel_region_name": text})
+            return await user_show_filtered_districts(update, context)
+        await update.message.reply_text("⚠️ Noto'g'ri tanlov. Iltimos, menyudan tanlang.")
+
+    elif user_level == "vacancy_district":
         res = db_query("SELECT id FROM districts WHERE name = ? COLLATE NOCASE", (text,))
         if res:
-            context.user_data.update({"user_district_id": res[0][0], "user_district_name": text})
-            return await user_show_branches(update, context)
+            context.user_data.update({"sel_district_id": res[0][0], "sel_district_name": text})
+            return await user_show_filtered_branches(update, context)
         await update.message.reply_text("⚠️ Noto'g'ri tanlov. Iltimos, menyudan tanlang.")
 
-    elif user_level == "branch":
+    elif user_level == "vacancy_branch":
         res = db_query("SELECT id FROM branches WHERE name = ? COLLATE NOCASE", (text,))
         if res:
-            context.user_data.update({"user_branch_id": res[0][0], "user_branch_name": text})
-            return await user_show_vacancies(update, context)
-        await update.message.reply_text("⚠️ Noto'g'ri tanlov. Iltimos, menyudan tanlang.")
-
-    elif user_level == "vacancy":
-        res = db_query("SELECT id, title FROM vacancies WHERE title = ? AND branch_id = ? COLLATE NOCASE", (text, context.user_data.get("user_branch_id")))
-        if res:
-            context.user_data.update({"user_vacancy_id": res[0][0], "user_vacancy_name": res[0][1]})
+            context.user_data.update({"sel_branch_id": res[0][0], "sel_branch_name": text})
             
             # Start application process
             await update.message.reply_text(
-                f"Siz *{context.user_data['user_branch_name']}* filialidagi *{res[0][1]}* vakansiyasini tanladingiz.\n\n"
+                f"Siz *{context.user_data['sel_branch_name']}* filialidagi *{context.user_data['sel_vacancy_title']}* vakansiyasini tanladingiz.\n\n"
                 "📝 Iltimos, o'zingiz haqingizdagi ma'lumotlarni yuboring:\n"
                 "(F.I.SH, telefon raqamingiz, tajribangiz haqida yozing va jo'nating)",
                 reply_markup=ReplyKeyboardMarkup([["❌ Bekor qilish"]], resize_keyboard=True),
@@ -339,10 +380,10 @@ async def user_apply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return MENU
 
     # Send to all admins
-    vacancy = context.user_data.get("user_vacancy_name", "Noma'lum")
-    branch = context.user_data.get("user_branch_name", "Noma'lum")
-    district = context.user_data.get("user_district_name", "Noma'lum")
-    region = context.user_data.get("user_region_name", "Noma'lum")
+    vacancy = context.user_data.get("sel_vacancy_title", "Noma'lum")
+    branch = context.user_data.get("sel_branch_name", "Noma'lum")
+    district = context.user_data.get("sel_district_name", "Noma'lum")
+    region = context.user_data.get("sel_region_name", "Noma'lum")
     
     uname = update.effective_user.username or "Noma'lum"
     

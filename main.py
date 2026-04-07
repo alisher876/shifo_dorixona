@@ -96,7 +96,7 @@ def is_admin(user_id: int) -> bool:
 
 
 def main_menu_kb(user_id: int) -> ReplyKeyboardMarkup:
-    buttons = [["ℹ️ Kompaniya haqida", "📝 Ariza qoldirish"], ["💼 Bo'sh ish o'rinlari"]]
+    buttons = [["ℹ️ Kompaniya haqida", "📝 Ariza qoldirish"], ["🔥 Qaynoq ish o'rinlari", "💼 Bo'sh ish o'rinlari"]]
     if is_admin(user_id):
         buttons.append(["⚙️ Admin panel"])
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
@@ -292,7 +292,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🏢 *Shifo Dorixona*\n\n"
             "Biz xalqimizga eng sifatli dori vositalarini hamyonbop narxlarda yetkazib berishni maqsad qilgan dorixonalar tizimimiz!\n\n"
-            "Ma'lumot uchun raqam: +99899 123-45-67",
+            "Ma'lumot uchun raqam: +998 91-803-03-03",
             parse_mode="Markdown"
         )
         return MENU
@@ -316,8 +316,19 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(msg, reply_markup=main_menu_kb(user_id))
         return MENU
         
-    if text == "📝 Ariza qoldirish":
+    if text == "🔥 Qaynoq ish o'rinlari":
+        context.user_data["is_general_apply"] = False
         return await user_show_vacancies_first(update, context)
+
+    if text == "📝 Ariza qoldirish":
+        context.user_data["is_general_apply"] = True
+        await update.message.reply_text(
+            "📝 Iltimos, so'rovnomani to'ldiring.\n\n"
+            "👤 Ism va familiyangizni kiriting:",
+            reply_markup=cancel_kb(),
+            parse_mode="Markdown"
+        )
+        return APPLY_NAME
 
     if text == "⚙️ Admin panel" and is_admin(user_id):
         return await show_regions(update, context)
@@ -370,6 +381,7 @@ async def user_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res = db_query("SELECT id FROM branches WHERE name = ? COLLATE NOCASE AND district_id = ?", (text, context.user_data.get("sel_district_id")))
         if res:
             context.user_data.update({"sel_branch_id": res[0][0], "sel_branch_name": text})
+            context.user_data["is_general_apply"] = False
             
             await update.message.reply_text(
                 f"Siz *{context.user_data['sel_branch_name']}* filialidagi *{context.user_data['sel_vacancy_title']}* vakansiyasini tanladingiz.\n\n"
@@ -408,7 +420,12 @@ async def apply_birthday_handler(update: Update, context: ContextTypes.DEFAULT_T
         return MENU
         
     context.user_data["app_birthday"] = text
-    await update.message.reply_text("📍 Yashash manzilingiz?", reply_markup=cancel_kb())
+    
+    if context.user_data.get("is_general_apply"):
+        await update.message.reply_text("📍 Qayerda va qaysi lavozimda ishlashni xohlaysiz?", reply_markup=cancel_kb())
+    else:
+        await update.message.reply_text("📍 Yashash manzilingiz?", reply_markup=cancel_kb())
+        
     return APPLY_ADDRESS
 
 async def apply_address_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -500,30 +517,47 @@ async def apply_phone_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["app_phone"] = phone
     
     # Compile and send
-    vacancy = context.user_data.get("sel_vacancy_title", "Noma'lum")
-    branch = context.user_data.get("sel_branch_name", "Noma'lum")
-    district = context.user_data.get("sel_district_name", "Noma'lum")
-    region = context.user_data.get("sel_region_name", "Noma'lum")
+    is_general = context.user_data.get("is_general_apply")
     uname = update.effective_user.username or "Noma'lum"
 
-    admin_msg = (
-        f"📩 *YANGI ARIZA TUSHDI*\n\n"
-        f"📍 Viloyat: {region}\n"
-        f"🏙 Tuman: {district}\n"
-        f"🏪 Filial: {branch}\n"
-        f"💼 Vakansiya: {vacancy}\n\n"
-        f"👥 *Nomzod Ma'lumotlari:*\n"
-        f"👤 Ism: {context.user_data.get('app_name')}\n"
-        f"🗓️ Tu'gilgan sana: {context.user_data.get('app_birthday')}\n"
-        f"📍 Manzil: {context.user_data.get('app_address')}\n"
-        f"🎓 Ta'lim: {context.user_data.get('app_education')}\n"
-        f"⏳ Tajriba: {context.user_data.get('app_experience')}\n"
-        f"💼 Oxirgi ish joyi: {context.user_data.get('app_last_job')}\n"
-        f"💸 Maosh: {context.user_data.get('app_salary')}\n"
-        f"💻 Kompyuter bilimi: {context.user_data.get('app_skill')}\n"
-        f"☎️ Telefon: {context.user_data.get('app_phone')}\n\n"
-        f"Username: @{uname}"
-    )
+    if is_general:
+        admin_msg = (
+            f"📩 *YANGI UMUMIY ARIZA*\n\n"
+            f"👥 *Nomzod Ma'lumotlari:*\n"
+            f"👤 Ism: {context.user_data.get('app_name')}\n"
+            f"🗓️ Tu'gilgan sana: {context.user_data.get('app_birthday')}\n"
+            f"📍 Ishlashni xohlagan joyi: {context.user_data.get('app_address')}\n"
+            f"🎓 Ta'lim: {context.user_data.get('app_education')}\n"
+            f"⏳ Tajriba: {context.user_data.get('app_experience')}\n"
+            f"💼 Oxirgi ish joyi: {context.user_data.get('app_last_job')}\n"
+            f"💸 Maosh: {context.user_data.get('app_salary')}\n"
+            f"💻 Kompyuter bilimi: {context.user_data.get('app_skill')}\n"
+            f"☎️ Telefon: {context.user_data.get('app_phone')}\n\n"
+            f"Username: @{uname}"
+        )
+    else:
+        vacancy = context.user_data.get("sel_vacancy_title", "Noma'lum")
+        branch = context.user_data.get("sel_branch_name", "Noma'lum")
+        district = context.user_data.get("sel_district_name", "Noma'lum")
+        region = context.user_data.get("sel_region_name", "Noma'lum")
+        admin_msg = (
+            f"🔥 *QAYNOQ VAKANSIYAGA ARIZA*\n\n"
+            f"📍 Viloyat: {region}\n"
+            f"🏙 Tuman: {district}\n"
+            f"🏪 Filial: {branch}\n"
+            f"💼 Vakansiya: {vacancy}\n\n"
+            f"👥 *Nomzod Ma'lumotlari:*\n"
+            f"👤 Ism: {context.user_data.get('app_name')}\n"
+            f"🗓️ Tu'gilgan sana: {context.user_data.get('app_birthday')}\n"
+            f"📍 Manzil: {context.user_data.get('app_address')}\n"
+            f"🎓 Ta'lim: {context.user_data.get('app_education')}\n"
+            f"⏳ Tajriba: {context.user_data.get('app_experience')}\n"
+            f"💼 Oxirgi ish joyi: {context.user_data.get('app_last_job')}\n"
+            f"💸 Maosh: {context.user_data.get('app_salary')}\n"
+            f"💻 Kompyuter bilimi: {context.user_data.get('app_skill')}\n"
+            f"☎️ Telefon: {context.user_data.get('app_phone')}\n\n"
+            f"Username: @{uname}"
+        )
 
     for admin_id in ADMIN_IDS:
         try:

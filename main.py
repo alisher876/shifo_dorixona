@@ -8,7 +8,6 @@ from telegram.ext import (
     MessageHandler,
     ConversationHandler,
     ContextTypes,
-    PicklePersistence,
     filters,
 )
 
@@ -24,6 +23,8 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+logger.info(f"ADMIN_IDS loaded: {ADMIN_IDS}")
 
 # ───────────────────── Conversation states ─────────────────────
 MENU, ADMIN_NAV, ADMIN_INPUT, ADMIN_DELETE_CONFIRM = range(4)
@@ -90,21 +91,23 @@ def navigation_kb(items, label: str) -> ReplyKeyboardMarkup:
 
 # ──────────────────── Admin navigation logic ────────────────────
 async def show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("show_regions called")
     context.user_data["level"] = "region"
     items = db_query("SELECT id, name FROM regions")
     await update.message.reply_text(
-        "📍 *Viloyatlar ro'yxati*",
+        "📍 Viloyatlar ro'yxati:",
         reply_markup=navigation_kb(items, "Viloyat"),
-        parse_mode="Markdown",
     )
     return ADMIN_NAV
 
 
 async def show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("show_districts called")
     context.user_data["level"] = "district"
     region_id = context.user_data.get("region_id")
     region_name = context.user_data.get("region_name", "?")
     if not region_id:
+        logger.warning("show_districts: region_id missing!")
         await update.message.reply_text(
             "⚠️ Viloyat tanlanmagan. /start dan boshlang.",
             reply_markup=main_menu_kb(update.effective_user.id),
@@ -112,18 +115,19 @@ async def show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return MENU
     items = db_query("SELECT id, name FROM districts WHERE region_id = ?", (region_id,))
     await update.message.reply_text(
-        f"🏙 *{region_name} tumanlari*",
+        f"🏙 {region_name} tumanlari:",
         reply_markup=navigation_kb(items, "Tuman"),
-        parse_mode="Markdown",
     )
     return ADMIN_NAV
 
 
 async def show_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info("show_branches called")
     context.user_data["level"] = "branch"
     district_id = context.user_data.get("district_id")
     district_name = context.user_data.get("district_name", "?")
     if not district_id:
+        logger.warning("show_branches: district_id missing!")
         await update.message.reply_text(
             "⚠️ Tuman tanlanmagan. /start dan boshlang.",
             reply_markup=main_menu_kb(update.effective_user.id),
@@ -131,9 +135,8 @@ async def show_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return MENU
     items = db_query("SELECT id, name FROM branches WHERE district_id = ?", (district_id,))
     await update.message.reply_text(
-        f"🏪 *{district_name} filiallari*",
+        f"🏪 {district_name} filiallari:",
         reply_markup=navigation_kb(items, "Filial"),
-        parse_mode="Markdown",
     )
     return ADMIN_NAV
 
@@ -165,6 +168,7 @@ async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ───────────────────────── Handlers ────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    logger.info(f"start: user_id={user.id}, is_admin={is_admin(user.id)}")
     await update.message.reply_text(
         f"Assalomu alaykum, {user.first_name}! 👋\nShifo Do'rxona botiga xush kelibsiz.",
         reply_markup=main_menu_kb(user.id),
@@ -175,6 +179,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
+    logger.info(f"menu_handler: user_id={user_id}, text={text!r}")
 
     if text == "🔍 Qidiruv":
         await update.message.reply_text(
@@ -197,8 +202,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             lines = [f"🏪 {b[0]} — {b[1]}, {b[2]}" for b in branches]
             await update.message.reply_text(
-                "📋 *Barcha filiallar:*\n\n" + "\n".join(lines),
-                parse_mode="Markdown",
+                "📋 Barcha filiallar:\n\n" + "\n".join(lines),
                 reply_markup=main_menu_kb(user_id),
             )
         return MENU
@@ -208,11 +212,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Free-text search
     results = db_query("SELECT name FROM branches WHERE name LIKE ?", (f"%{text}%",))
-    if results:
-        lines = [f"🏪 {r[0]}" for r in results]
-        msg = "Topildi:\n" + "\n".join(lines)
-    else:
-        msg = "❌ Hech narsa topilmadi."
+    msg = ("Topildi:\n" + "\n".join(f"🏪 {r[0]}" for r in results)) if results else "❌ Hech narsa topilmadi."
     await update.message.reply_text(msg, reply_markup=main_menu_kb(user_id))
     return MENU
 
@@ -221,6 +221,7 @@ async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     level = context.user_data.get("level")
     user_id = update.effective_user.id
+    logger.info(f"admin_nav_handler: level={level!r}, text={text!r}")
 
     if text == "🏠 Main Menu":
         await update.message.reply_text(
@@ -262,12 +263,14 @@ async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.update({"district_id": res[0][0], "district_name": text})
             return await show_branches(update, context)
 
+    logger.info(f"admin_nav_handler: no match, staying in ADMIN_NAV")
     return ADMIN_NAV
 
 
 async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text
     level = context.user_data.get("level")
+    logger.info(f"admin_input_handler: level={level!r}, name={name!r}")
 
     if name == "❌ Cancel":
         if level == "region":
@@ -281,12 +284,12 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return MENU
 
+    # Insert into DB
+    inserted = False
     try:
         if level == "region":
             db_execute("INSERT INTO regions (name) VALUES (?)", (name,))
-            await update.message.reply_text(f"✅ {name} qo'shildi!")
-            return await show_regions(update, context)
-
+            inserted = True
         elif level == "district":
             region_id = context.user_data.get("region_id")
             if not region_id:
@@ -299,9 +302,7 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "INSERT INTO districts (name, region_id) VALUES (?, ?)",
                 (name, region_id),
             )
-            await update.message.reply_text(f"✅ {name} qo'shildi!")
-            return await show_districts(update, context)
-
+            inserted = True
         elif level == "branch":
             district_id = context.user_data.get("district_id")
             if not district_id:
@@ -314,31 +315,32 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "INSERT INTO branches (name, district_id) VALUES (?, ?)",
                 (name, district_id),
             )
-            await update.message.reply_text(f"✅ {name} qo'shildi!")
-            return await show_branches(update, context)
-
+            inserted = True
         else:
             await update.message.reply_text(
                 "⚠️ Noma'lum holat. /start dan boshlang.",
                 reply_markup=main_menu_kb(update.effective_user.id),
             )
             return MENU
-
     except Exception as e:
-        logger.error(f"admin_input_handler error: {e}", exc_info=True)
+        logger.error(f"DB insert error: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Xatolik: {e}")
-        if level == "region":
-            return await show_regions(update, context)
-        if level == "district":
-            return await show_districts(update, context)
-        if level == "branch":
-            return await show_branches(update, context)
-        return MENU
+
+    if inserted:
+        await update.message.reply_text(f"✅ {name} qo'shildi!")
+
+    # Navigate back to the current level
+    if level == "region":
+        return await show_regions(update, context)
+    if level == "district":
+        return await show_districts(update, context)
+    return await show_branches(update, context)
 
 
 async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     level = context.user_data.get("level")
+    logger.info(f"admin_delete_handler: level={level!r}, text={text!r}")
 
     if text == "⬅️ Back":
         if level == "region":
@@ -349,10 +351,8 @@ async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     item_name = text[2:].strip() if text.startswith("🗑") else text
     table = (
-        "regions"
-        if level == "region"
-        else "districts"
-        if level == "district"
+        "regions" if level == "region"
+        else "districts" if level == "district"
         else "branches"
     )
 
@@ -360,7 +360,7 @@ async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         db_execute(f"DELETE FROM {table} WHERE name = ?", (item_name,))
         await update.message.reply_text(f"✅ O'chirildi: {item_name}")
     except Exception as e:
-        logger.error(f"admin_delete_handler error: {e}", exc_info=True)
+        logger.error(f"DB delete error: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Xatolik: {e}")
 
     if level == "region":
@@ -375,20 +375,14 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("Unhandled exception:", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
         await update.effective_message.reply_text(
-            "⚠️ Ichki xatolik yuz berdi. /start dan qayta boshlang."
+            f"⚠️ Xatolik: {context.error}\n\n/start dan qayta boshlang."
         )
 
 
 def main():
     init_db()
 
-    persistence = PicklePersistence(filepath="bot_state.pickle")
-    app = (
-        Application.builder()
-        .token(TOKEN)
-        .persistence(persistence)
-        .build()
-    )
+    app = Application.builder().token(TOKEN).build()
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -401,13 +395,11 @@ def main():
             ],
         },
         fallbacks=[CommandHandler("start", start)],
-        persistent=True,
-        name="main_conv",
     )
 
     app.add_handler(conv)
     app.add_error_handler(error_handler)
-    logger.info("Bot ishga tushdi...")
+    logger.info("Bot ishga tushdi!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

@@ -82,7 +82,6 @@ def main_menu_kb(user_id: int) -> ReplyKeyboardMarkup:
 
 
 def navigation_kb(items, label: str) -> ReplyKeyboardMarkup:
-    """Builds a keyboard with item names + Add / Delete / Back / Main Menu."""
     rows = [[item[1]] for item in items]
     rows.append([f"➕ Add {label}", f"❌ Delete {label}"])
     rows.append(["⬅️ Back", "🏠 Main Menu"])
@@ -103,8 +102,14 @@ async def show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["level"] = "district"
-    region_id = context.user_data["region_id"]
-    region_name = context.user_data["region_name"]
+    region_id = context.user_data.get("region_id")
+    region_name = context.user_data.get("region_name", "?")
+    if not region_id:
+        await update.message.reply_text(
+            "⚠️ Viloyat tanlanmagan. /start dan boshlang.",
+            reply_markup=main_menu_kb(update.effective_user.id),
+        )
+        return MENU
     items = db_query("SELECT id, name FROM districts WHERE region_id = ?", (region_id,))
     await update.message.reply_text(
         f"🏙 *{region_name} tumanlari*",
@@ -116,8 +121,14 @@ async def show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["level"] = "branch"
-    district_id = context.user_data["district_id"]
-    district_name = context.user_data["district_name"]
+    district_id = context.user_data.get("district_id")
+    district_name = context.user_data.get("district_name", "?")
+    if not district_id:
+        await update.message.reply_text(
+            "⚠️ Tuman tanlanmagan. /start dan boshlang.",
+            reply_markup=main_menu_kb(update.effective_user.id),
+        )
+        return MENU
     items = db_query("SELECT id, name FROM branches WHERE district_id = ?", (district_id,))
     await update.message.reply_text(
         f"🏪 *{district_name} filiallari*",
@@ -132,15 +143,15 @@ async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE
     if level == "region":
         items = db_query("SELECT id, name FROM regions")
     elif level == "district":
+        region_id = context.user_data.get("region_id")
         items = db_query(
-            "SELECT id, name FROM districts WHERE region_id = ?",
-            (context.user_data["region_id"],),
-        )
+            "SELECT id, name FROM districts WHERE region_id = ?", (region_id,)
+        ) if region_id else []
     else:
+        district_id = context.user_data.get("district_id")
         items = db_query(
-            "SELECT id, name FROM branches WHERE district_id = ?",
-            (context.user_data["district_id"],),
-        )
+            "SELECT id, name FROM branches WHERE district_id = ?", (district_id,)
+        ) if district_id else []
 
     kb = [[f"🗑 {i[1]}"] for i in items]
     kb.append(["⬅️ Back"])
@@ -180,7 +191,9 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                ORDER BY r.name, d.name, b.name"""
         )
         if not branches:
-            await update.message.reply_text("Hozircha filiallar yo'q.")
+            await update.message.reply_text(
+                "Hozircha filiallar yo'q.", reply_markup=main_menu_kb(user_id)
+            )
         else:
             lines = [f"🏪 {b[0]} — {b[1]}, {b[2]}" for b in branches]
             await update.message.reply_text(
@@ -194,9 +207,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await show_regions(update, context)
 
     # Free-text search
-    results = db_query(
-        "SELECT name FROM branches WHERE name LIKE ?", (f"%{text}%",)
-    )
+    results = db_query("SELECT name FROM branches WHERE name LIKE ?", (f"%{text}%",))
     if results:
         lines = [f"🏪 {r[0]}" for r in results]
         msg = "Topildi:\n" + "\n".join(lines)
@@ -265,7 +276,6 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             return await show_districts(update, context)
         if level == "branch":
             return await show_branches(update, context)
-        # fallback: unknown level → go home
         await update.message.reply_text(
             "Bekor qilindi.", reply_markup=main_menu_kb(update.effective_user.id)
         )
@@ -276,10 +286,14 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             db_execute("INSERT INTO regions (name) VALUES (?)", (name,))
             await update.message.reply_text(f"✅ {name} qo'shildi!")
             return await show_regions(update, context)
+
         elif level == "district":
             region_id = context.user_data.get("region_id")
             if not region_id:
-                await update.message.reply_text("⚠️ Viloyat tanlanmagan. /start dan boshlang.")
+                await update.message.reply_text(
+                    "⚠️ Viloyat tanlanmagan. /start dan boshlang.",
+                    reply_markup=main_menu_kb(update.effective_user.id),
+                )
                 return MENU
             db_execute(
                 "INSERT INTO districts (name, region_id) VALUES (?, ?)",
@@ -287,10 +301,14 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             await update.message.reply_text(f"✅ {name} qo'shildi!")
             return await show_districts(update, context)
+
         elif level == "branch":
             district_id = context.user_data.get("district_id")
             if not district_id:
-                await update.message.reply_text("⚠️ Tuman tanlanmagan. /start dan boshlang.")
+                await update.message.reply_text(
+                    "⚠️ Tuman tanlanmagan. /start dan boshlang.",
+                    reply_markup=main_menu_kb(update.effective_user.id),
+                )
                 return MENU
             db_execute(
                 "INSERT INTO branches (name, district_id) VALUES (?, ?)",
@@ -298,9 +316,14 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             await update.message.reply_text(f"✅ {name} qo'shildi!")
             return await show_branches(update, context)
+
         else:
-            await update.message.reply_text("⚠️ Noma'lum holat. /start dan boshlang.")
+            await update.message.reply_text(
+                "⚠️ Noma'lum holat. /start dan boshlang.",
+                reply_markup=main_menu_kb(update.effective_user.id),
+            )
             return MENU
+
     except Exception as e:
         logger.error(f"admin_input_handler error: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Xatolik: {e}")
@@ -337,6 +360,7 @@ async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         db_execute(f"DELETE FROM {table} WHERE name = ?", (item_name,))
         await update.message.reply_text(f"✅ O'chirildi: {item_name}")
     except Exception as e:
+        logger.error(f"admin_delete_handler error: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Xatolik: {e}")
 
     if level == "region":
@@ -348,7 +372,6 @@ async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ──────────────────────────── Main ─────────────────────────────
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log all unhandled exceptions so they appear in Railway logs."""
     logger.error("Unhandled exception:", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
         await update.effective_message.reply_text(

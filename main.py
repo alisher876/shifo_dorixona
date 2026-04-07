@@ -72,7 +72,8 @@ async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if level == 'branch': return await show_districts(update, context)
 
     if text.startswith("➕ Add"):
-        await update.message.reply_text(f"✍️ Yangi {level} nomini kiriting:", reply_markup=ReplyKeyboardRemove())
+        kb = [["❌ Cancel"]]
+        await update.message.reply_text(f"✍️ Yangi {level} nomini kiriting:", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return ADMIN_INPUT
 
     if text.startswith("❌ Delete"):
@@ -95,6 +96,11 @@ async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.message.text
     level = context.user_data.get('level')
+
+    if name == "❌ Cancel":
+        if level == 'region': return await show_regions(update, context)
+        if level == 'district': return await show_districts(update, context)
+        return await show_branches(update, context)
 
     try:
         if level == 'region':
@@ -121,7 +127,7 @@ async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         if level == 'district': return await show_districts(update, context)
         return await show_branches(update, context)
 
-    item_name = text.replace("🗑 ", "")
+    item_name = text[2:] if text.startswith("🗑 ") else text
     table = "regions" if level == 'region' else "districts" if level == 'district' else "branches"
     
     try:

@@ -61,94 +61,112 @@ def navigation_kb(items, level_name):
 
 # ---------------- Admin Navigation Logic ----------------
 
-async def admin_nav_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['admin_level'] = 'region'
-    regions = db_query("SELECT id, name FROM regions")
-    await update.message.reply_text("📍 **Admin: Viloyatlar**", reply_markup=navigation_kb(regions, "Viloyat"), parse_mode='Markdown')
+async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Entry point for Admin Panel - Shows Viloyatlar"""
+    return await show_regions(update, context)
+
+async def show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['level'] = 'region'
+    # Fetch all regions to show as buttons
+    items = db_query("SELECT id, name FROM regions")
+    await update.message.reply_text(
+        "📍 **Admin: Viloyatlar ro'yxati**\n\nViloyatni tanlang yoki yangi qo'shing:",
+        reply_markup=nav_kb(items, "Viloyat"),
+        parse_mode='Markdown'
+    )
     return ADMIN_NAV
 
-async def admin_nav_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['admin_level'] = 'district'
+async def show_districts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['level'] = 'district'
     region_id = context.user_data['region_id']
-    districts = db_query("SELECT id, name FROM districts WHERE region_id = ?", (region_id,))
-    await update.message.reply_text(f"🏙 **Admin: {context.user_data['region_name']} tumanlari**", 
-                                   reply_markup=navigation_kb(districts, "Tuman"), parse_mode='Markdown')
+    region_name = context.user_data['region_name']
+    items = db_query("SELECT id, name FROM districts WHERE region_id = ?", (region_id,))
+    await update.message.reply_text(
+        f"🏙 **{region_name} tumanlari**\n\nTumanni tanlang yoki yangi qo'shing:",
+        reply_markup=nav_kb(items, "Tuman"),
+        parse_mode='Markdown'
+    )
     return ADMIN_NAV
 
-async def admin_nav_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['admin_level'] = 'branch'
+async def show_branches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['level'] = 'branch'
     district_id = context.user_data['district_id']
-    branches = db_query("SELECT id, name FROM branches WHERE district_id = ?", (district_id,))
-    await update.message.reply_text(f"🏪 **Admin: {context.user_data['district_name']} filiallari**", 
-                                   reply_markup=navigation_kb(branches, "Filial"), parse_mode='Markdown')
+    district_name = context.user_data['district_name']
+    items = db_query("SELECT id, name FROM branches WHERE district_id = ?", (district_id,))
+    await update.message.reply_text(
+        f"🏪 **{district_name} filiallari**\n\nFilialni tanlang yoki yangi qo'shing:",
+        reply_markup=nav_kb(items, "Filial"),
+        parse_mode='Markdown'
+    )
     return ADMIN_NAV
-
 # ---------------- Interaction Handlers ----------------
 
 async def admin_nav_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles button clicks in the navigation tree"""
     text = update.message.text
-    level = context.user_data.get('admin_level')
+    level = context.user_data.get('level')
 
-    if text == "🏠 Main Menu": 
-        await update.message.reply_text("Back to Start", reply_markup=main_menu_kb(update.effective_user.id))
+    if text == "🏠 Menu":
+        await update.message.reply_text("Asosiy menyuga qaytildi.", reply_markup=main_kb(update.effective_user.id))
         return MENU
     
     if text == "⬅️ Back":
         if level == 'region': 
-            await update.message.reply_text("Main Menu", reply_markup=main_menu_kb(update.effective_user.id))
+            await update.message.reply_text("Bekor qilindi.", reply_markup=main_kb(update.effective_user.id))
             return MENU
-        if level == 'district': return await admin_nav_regions(update, context)
-        if level == 'branch': return await admin_nav_districts(update, context)
+        if level == 'district': return await show_regions(update, context)
+        if level == 'branch': return await show_districts(update, context)
 
-    if text.startswith("➕ Add"):
-        await update.message.reply_text(f"Yangi {level} nomini yozing:", reply_markup=ReplyKeyboardRemove())
+    # Trigger Input State
+    if "➕ Add" in text:
+        await update.message.reply_text(
+            f"✍️ Yangi {level} nomini kiriting:",
+            reply_markup=ReplyKeyboardRemove()
+        )
         return ADMIN_INPUT
 
-    if text.startswith("❌ Delete"):
-        if level == 'region': items = db_query("SELECT id, name FROM regions")
-        elif level == 'district': items = db_query("SELECT id, name FROM districts WHERE region_id = ?", (context.user_data['region_id'],))
-        else: items = db_query("SELECT id, name FROM branches WHERE district_id = ?", (context.user_data['district_id'],))
-        
-        kb = [[f"🗑 {i[1]}"] for i in items]
-        kb.append(["⬅️ Back"])
-        await update.message.reply_text(f"O'chirish uchun {level}ni tanlang:", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-        return ADMIN_DELETE_CONFIRM
+    # Trigger Delete State
+    if "❌ Delete" in text:
+        # Logic to fetch current items for deletion list
+        return await show_delete_options(update, context)
 
-    # Selection Navigation
+    # Drilling down the tree
     if level == 'region':
         res = db_query("SELECT id FROM regions WHERE name = ?", (text,))
         if res:
             context.user_data.update({'region_id': res[0][0], 'region_name': text})
-            return await admin_nav_districts(update, context)
+            return await show_districts(update, context)
     elif level == 'district':
         res = db_query("SELECT id FROM districts WHERE name = ?", (text,))
         if res:
             context.user_data.update({'district_id': res[0][0], 'district_name': text})
-            return await admin_nav_branches(update, context)
+            return await show_branches(update, context)
             
     return ADMIN_NAV
 
 async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Saves the typed text into the database and returns to the menu"""
     name = update.message.text
-    level = context.user_data['admin_level']
-    
-    try:
-        if level == 'region':
-            db_execute("INSERT INTO regions (name) VALUES (?)", (name,))
-            await update.message.reply_text(f"✅ Viloyat qo'shildi: {name}")
-            return await admin_nav_regions(update, context)
-        elif level == 'district':
-            db_execute("INSERT INTO districts (name, region_id) VALUES (?, ?)", (name, context.user_data['region_id']))
-            await update.message.reply_text(f"✅ Tuman qo'shildi: {name}")
-            return await admin_nav_districts(update, context)
-        elif level == 'branch':
-            db_execute("INSERT INTO branches (name, district_id) VALUES (?, ?)", (name, context.user_data['district_id']))
-            await update.message.reply_text(f"✅ Filial qo'shildi: {name}")
-            return await admin_nav_branches(update, context)
-    except Exception as e:
-        await update.message.reply_text(f"❌ Xatolik: {e}")
-        return await admin_nav_regions(update, context)
+    level = context.user_data.get('level')
 
+    if level == 'region':
+        db_execute("INSERT INTO regions (name) VALUES (?)", (name,))
+    elif level == 'district':
+        db_execute("INSERT INTO districts (name, region_id) VALUES (?, ?)", 
+                   (name, context.user_data['region_id']))
+    elif level == 'branch':
+        db_execute("INSERT INTO branches (name, district_id) VALUES (?, ?)", 
+                   (name, context.user_data['district_id']))
+
+    await update.message.reply_text(f"✅ {name} muvaffaqiyatli qo'shildi!")
+    
+    # CRITICAL: This part returns you back to the list so buttons don't disappear
+    if level == 'region': return await show_regions(update, context)
+    if level == 'district': return await show_districts(update, context)
+    if level == 'branch': return await show_branches(update, context)
+    
+    return ADMIN_NAV
+    
 async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text == "⬅️ Back":

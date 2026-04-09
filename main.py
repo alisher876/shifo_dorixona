@@ -146,7 +146,7 @@ def ariza_dorixona_vacancies_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([["Farmasevt", "Parafarmasevt"], ["❌ Bekor qilish"]], resize_keyboard=True)
 
 def ariza_omborxona_vacancies_kb() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup([["Zam sklad", "Shafyor", "reviziyor"], ["❌ Bekor qilish"]], resize_keyboard=True)
+    return ReplyKeyboardMarkup([["Zam sklad", "Shafyor", "Reviziyor"], ["❌ Bekor qilish"]], resize_keyboard=True)
 
 def marital_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([["Uylangan/Turmushga chiqqan"], ["Uylanmagan/Turmushga chiqmagan"], ["❌ Bekor qilish"]], resize_keyboard=True)
@@ -322,8 +322,10 @@ async def user_show_filtered_branches(update: Update, context: ContextTypes.DEFA
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     await update.message.reply_text(
-        f"Assalomu alaykum, {user.first_name}! 👋\nShifo Do'rxona botiga xush kelibsiz.",
+        f"Assalomu alaykum, {user.first_name}! 👋\nShifo Do'rxona botiga xush kelibsiz.\n\n"
+        f"💡 Maslahat: Ishga tezroq joylashish uchun birinchi navbatda *\"🔥 Qaynoq ish o'rinlari\"* bo'limidagi vakansilar bilan tanishib chiqishingizni tavsiya qilamiz.",
         reply_markup=main_menu_kb(user.id),
+        parse_mode="Markdown"
     )
     return MENU
 

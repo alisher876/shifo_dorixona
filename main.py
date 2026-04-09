@@ -38,7 +38,10 @@ logger.info(f"ADMIN_IDS loaded: {ADMIN_IDS}")
     # New user states for Ariza
     ARIZA_DEPARTMENT,
     ARIZA_OFIS_ADDRESS,
+    ARIZA_OMBOR_ADDRESS,
     ARIZA_VACANCY,
+    ARIZA_DORIXONA_DISTRICT,
+    ARIZA_DORIXONA_ADDRESS,
     # Questionnaire states
     APPLY_NAME,
     APPLY_BIRTHDAY,
@@ -53,7 +56,7 @@ logger.info(f"ADMIN_IDS loaded: {ADMIN_IDS}")
     APPLY_LANG_RU,
     APPLY_LANG_EN,
     APPLY_SALARY,
-) = range(21)
+) = range(24)
 
 # ─────────────────────── Database helpers ──────────────────────
 def init_db():
@@ -144,6 +147,26 @@ def ariza_ofis_vacancies_kb() -> ReplyKeyboardMarkup:
 
 def ariza_dorixona_vacancies_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([["Farmasevt", "Parafarmasevt"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def dorixona_districts_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([
+        ["Navoiy shahar", "Nurota tuman"], 
+        ["Karmana tuman", "Muborak Tuman"], 
+        ["Gijduvon tuman", "Paxtachi tuman"], 
+        ["Narpay tuman", "Xatirchi tuman"],
+        ["❌ Bekor qilish"]
+    ], resize_keyboard=True)
+
+def dorixona_navoiy_addresses_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([
+        ["Abdullo Avloniy 16A-uy", "10 daha Tijorat bozori 85-do'kon"],
+        ["Abdulla Avloniy ko’chasi 17-2.2-uy", "Ibn Sino ko’chasi 24-uy"],
+        ["Guliston 454/1-uy", "G’alaba ko’chasi 188G-uy"],
+        ["❌ Bekor qilish"]
+    ], resize_keyboard=True)
+
+def dorixona_single_address_kb(addr: str) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([[addr], ["❌ Bekor qilish"]], resize_keyboard=True)
 
 def ariza_omborxona_vacancies_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([["Zam sklad", "Shafyor", "Reviziyor"], ["❌ Bekor qilish"]], resize_keyboard=True)
@@ -461,8 +484,8 @@ async def ariza_department_handler(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("Vakansiyani tanlang:", reply_markup=ariza_dorixona_vacancies_kb())
         return ARIZA_VACANCY
     elif text == "Omborxona":
-        await update.message.reply_text("Vakansiyani tanlang:", reply_markup=ariza_omborxona_vacancies_kb())
-        return ARIZA_VACANCY
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=ariza_ofis_address_kb())
+        return ARIZA_OMBOR_ADDRESS
     else:
         await update.message.reply_text("Iltimos, pastdagi tugmalardan birini tanlang:")
         return ARIZA_DEPARTMENT
@@ -477,6 +500,16 @@ async def ariza_ofis_address_handler(update: Update, context: ContextTypes.DEFAU
     await update.message.reply_text("Vakansiyani tanlang:", reply_markup=ariza_ofis_vacancies_kb())
     return ARIZA_VACANCY
 
+async def ariza_ombor_address_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_ofis_address"] = text
+    await update.message.reply_text("Vakansiyani tanlang:", reply_markup=ariza_omborxona_vacancies_kb())
+    return ARIZA_VACANCY
+
 async def ariza_vacancy_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
@@ -484,6 +517,52 @@ async def ariza_vacancy_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
         return MENU
     context.user_data["app_vacancy"] = text
+    
+    if context.user_data.get("app_department") == "Dorixona":
+        await update.message.reply_text("Tumaningizni tanlang:", reply_markup=dorixona_districts_kb())
+        return ARIZA_DORIXONA_DISTRICT
+    else:
+        await update.message.reply_text("👤 Ism va familiyangizni kiriting:", reply_markup=cancel_kb())
+        return APPLY_NAME
+
+async def ariza_dorixona_district_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_district"] = text
+    if text == "Navoiy shahar":
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=dorixona_navoiy_addresses_kb())
+    elif text == "Nurota tuman":
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=dorixona_single_address_kb("Quruvchilar ko’chasi 39-uy"))
+    elif text == "Karmana tuman":
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=dorixona_single_address_kb("Mirsaid Baxrom MFY"))
+    elif text == "Muborak Tuman":
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=dorixona_single_address_kb("Istiqlol MFY Tibbiyoy ko’chasi 11-uy"))
+    elif text == "Gijduvon tuman":
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=dorixona_single_address_kb("Sharq ko’chasi 182-uy"))
+    elif text == "Paxtachi tuman":
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=dorixona_single_address_kb("Buston MFY Ilhom-baxsh 76-uy"))
+    elif text == "Narpay tuman":
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=dorixona_single_address_kb("Zirbuloq ko’chasi 130-uy"))
+    elif text == "Xatirchi tuman":
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=dorixona_single_address_kb(" Xo’jaqo’rg’on ko’chasi 12-uy"))
+    else:
+        await update.message.reply_text("Iltimos, pastdagi tugmalardan birini tanlang:")
+        return ARIZA_DORIXONA_DISTRICT
+        
+    return ARIZA_DORIXONA_ADDRESS
+
+async def ariza_dorixona_address_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_dorixona_address"] = text
     await update.message.reply_text("👤 Ism va familiyangizni kiriting:", reply_markup=cancel_kb())
     return APPLY_NAME
 
@@ -660,11 +739,20 @@ async def apply_salary_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
     if is_general:
+        dep = context.user_data.get('app_department', '-')
+        if dep == "Dorixona":
+            loc_info = (
+                f"🏙 Tuman/Shahar: {context.user_data.get('app_district', '-')}\n"
+                f"📍 Manzil: {context.user_data.get('app_dorixona_address', '-')}\n"
+            )
+        else:
+            loc_info = f"📍 Manzil (Ofis/Ombor): {context.user_data.get('app_ofis_address', '-')}\n"
+            
         admin_msg = (
             f"📩 *YANGI UMUMIY ARIZA*\n\n"
-            f"🏢 Bo'lim: {context.user_data.get('app_department', '-')}\n"
-            f"📍 Ofis Manzili: {context.user_data.get('app_ofis_address', '-')}\n"
-            f"💼 Kutilayotgan Vakansiya: {context.user_data.get('app_vacancy', '-')}\n\n"
+            f"🏢 Bo'lim: {dep}\n"
+            f"💼 Kutilayotgan Vakansiya: {context.user_data.get('app_vacancy', '-')}\n"
+            + loc_info + "\n"
             + info_str
         )
     else:
@@ -859,7 +947,10 @@ def main():
             USER_NAV: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_nav_handler)],
             ARIZA_DEPARTMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_department_handler)],
             ARIZA_OFIS_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_ofis_address_handler)],
+            ARIZA_OMBOR_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_ombor_address_handler)],
             ARIZA_VACANCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_vacancy_handler)],
+            ARIZA_DORIXONA_DISTRICT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_dorixona_district_handler)],
+            ARIZA_DORIXONA_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_dorixona_address_handler)],
             APPLY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_name_handler)],
             APPLY_BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_birthday_handler)],
             APPLY_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_address_handler)],

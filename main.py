@@ -29,20 +29,31 @@ logger.info(f"ADMIN_IDS loaded: {ADMIN_IDS}")
 # ───────────────────── Conversation states ─────────────────────
 (
     MENU,
+    # Admin states
     ADMIN_NAV,
     ADMIN_INPUT,
     ADMIN_DELETE_CONFIRM,
+    # User states for Qaynoq
     USER_NAV,
+    # New user states for Ariza
+    ARIZA_DEPARTMENT,
+    ARIZA_OFIS_ADDRESS,
+    ARIZA_VACANCY,
+    # Questionnaire states
     APPLY_NAME,
     APPLY_BIRTHDAY,
     APPLY_ADDRESS,
+    APPLY_PHONE,
+    APPLY_MARITAL,
+    APPLY_STUDENT,
+    APPLY_STUDY_TIME,
     APPLY_EDUCATION,
     APPLY_EXPERIENCE,
-    APPLY_LAST_JOB,
+    APPLY_LANG_UZ,
+    APPLY_LANG_RU,
+    APPLY_LANG_EN,
     APPLY_SALARY,
-    APPLY_SKILL,
-    APPLY_PHONE,
-) = range(14)
+) = range(21)
 
 # ─────────────────────── Database helpers ──────────────────────
 def init_db():
@@ -121,6 +132,39 @@ def phone_kb() -> ReplyKeyboardMarkup:
         [[KeyboardButton("📱 Raqamni yuborish", request_contact=True)], ["❌ Bekor qilish"]],
         resize_keyboard=True
     )
+
+def ariza_departments_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["Ofis", "Dorixona", "Omborxona"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def ariza_ofis_address_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["Guliston 3 massivi 49A-uy(Guliston 3 poliknikasi)"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def ariza_ofis_vacancies_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["Zam Direktor", "Buxgalter"], ["Zavxoz(programist)", "Menedjer"], ["Bron", "Shafyor"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def ariza_dorixona_vacancies_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["Farmasevt", "Parafarmasevt"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def ariza_omborxona_vacancies_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["Zam sklad", "Shafyor", "reviziyor"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def marital_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["Uylangan/Turmushga chiqqan"], ["Uylanmagan/Turmushga chiqmagan"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def yes_no_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["Ha", "Yo'q"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def study_time_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["Kunduzgi", "Kechgi"], ["Sirtqi", "Tuganlanmagan oliy"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def education_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["O'rta", "Oliy"], ["O'rta maxsus", "Tuganlanmagan oliy"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def lang_level_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["Yomon", "O'rtacha", "Yaxshi"], ["❌ Bekor qilish"]], resize_keyboard=True)
+
+def salary_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([["1 500 000 - 1 800 000", "1 800 000 - 2 500 000"], ["2 500 000 - 3 500 000", "3 500 000 - 5 000 000"], ["5 000 000 dan ortiq"], ["❌ Bekor qilish"]], resize_keyboard=True)
 
 # ──────────────────── Admin navigation logic ────────────────────
 async def show_regions(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -322,13 +366,12 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📝 Ariza qoldirish":
         context.user_data["is_general_apply"] = True
+        context.user_data["app_ofis_address"] = ""
         await update.message.reply_text(
-            "📝 Iltimos, so'rovnomani to'ldiring.\n\n"
-            "👤 Ism va familiyangizni kiriting:",
-            reply_markup=cancel_kb(),
-            parse_mode="Markdown"
+            "Bo'limni tanlang:",
+            reply_markup=ariza_departments_kb()
         )
-        return APPLY_NAME
+        return ARIZA_DEPARTMENT
 
     if text == "⚙️ Admin panel" and is_admin(user_id):
         return await show_regions(update, context)
@@ -401,6 +444,47 @@ def check_cancel(text, user_id):
         return True
     return False
 
+async def ariza_department_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+        
+    context.user_data["app_department"] = text
+    if text == "Ofis":
+        await update.message.reply_text("Manzilni tanlang:", reply_markup=ariza_ofis_address_kb())
+        return ARIZA_OFIS_ADDRESS
+    elif text == "Dorixona":
+        await update.message.reply_text("Vakansiyani tanlang:", reply_markup=ariza_dorixona_vacancies_kb())
+        return ARIZA_VACANCY
+    elif text == "Omborxona":
+        await update.message.reply_text("Vakansiyani tanlang:", reply_markup=ariza_omborxona_vacancies_kb())
+        return ARIZA_VACANCY
+    else:
+        await update.message.reply_text("Iltimos, pastdagi tugmalardan birini tanlang:")
+        return ARIZA_DEPARTMENT
+
+async def ariza_ofis_address_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_ofis_address"] = text
+    await update.message.reply_text("Vakansiyani tanlang:", reply_markup=ariza_ofis_vacancies_kb())
+    return ARIZA_VACANCY
+
+async def ariza_vacancy_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_vacancy"] = text
+    await update.message.reply_text("👤 Ism va familiyangizni kiriting:", reply_markup=cancel_kb())
+    return APPLY_NAME
+
 async def apply_name_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
@@ -420,12 +504,7 @@ async def apply_birthday_handler(update: Update, context: ContextTypes.DEFAULT_T
         return MENU
         
     context.user_data["app_birthday"] = text
-    
-    if context.user_data.get("is_general_apply"):
-        await update.message.reply_text("📍 Qayerda va qaysi lavozimda ishlashni xohlaysiz?", reply_markup=cancel_kb())
-    else:
-        await update.message.reply_text("📍 Yashash manzilingiz?", reply_markup=cancel_kb())
-        
+    await update.message.reply_text("📍 Yashash manzilingizni kiriting:", reply_markup=cancel_kb())
     return APPLY_ADDRESS
 
 async def apply_address_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -436,61 +515,6 @@ async def apply_address_handler(update: Update, context: ContextTypes.DEFAULT_TY
         return MENU
         
     context.user_data["app_address"] = text
-    await update.message.reply_text("🎓 Ta’lim darajangiz?", reply_markup=cancel_kb())
-    return APPLY_EDUCATION
-
-async def apply_education_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    user_id = update.effective_user.id
-    if check_cancel(text, user_id):
-        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
-        return MENU
-        
-    context.user_data["app_education"] = text
-    await update.message.reply_text("⏳ Ish tajribangiz qancha?(bo'lmasa \"Yo'q\" deb javob bering)", reply_markup=cancel_kb())
-    return APPLY_EXPERIENCE
-
-async def apply_experience_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    user_id = update.effective_user.id
-    if check_cancel(text, user_id):
-        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
-        return MENU
-        
-    context.user_data["app_experience"] = text
-    await update.message.reply_text("💼 Oxirgi ish joyingiz va lavozimingiz?(bo'lmasa \"Yo'q\" deb javob bering)", reply_markup=cancel_kb())
-    return APPLY_LAST_JOB
-
-async def apply_last_job_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    user_id = update.effective_user.id
-    if check_cancel(text, user_id):
-        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
-        return MENU
-        
-    context.user_data["app_last_job"] = text
-    await update.message.reply_text("💸 Kutilayotgan maosh?", reply_markup=cancel_kb())
-    return APPLY_SALARY
-
-async def apply_salary_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    user_id = update.effective_user.id
-    if check_cancel(text, user_id):
-        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
-        return MENU
-        
-    context.user_data["app_salary"] = text
-    await update.message.reply_text("💻 Kompyuter bilimi (1-4 gacha baholang):", reply_markup=cancel_kb())
-    return APPLY_SKILL
-
-async def apply_skill_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    user_id = update.effective_user.id
-    if check_cancel(text, user_id):
-        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
-        return MENU
-        
-    context.user_data["app_skill"] = text
     await update.message.reply_text("☎️ Telefon raqamingiz:", reply_markup=phone_kb())
     return APPLY_PHONE
 
@@ -515,25 +539,131 @@ async def apply_phone_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return APPLY_PHONE
         
     context.user_data["app_phone"] = phone
+    await update.message.reply_text("Oila qurganmisiz?", reply_markup=marital_kb())
+    return APPLY_MARITAL
+
+async def apply_marital_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_marital"] = text
+    await update.message.reply_text("Siz talabamisiz?", reply_markup=yes_no_kb())
+    return APPLY_STUDENT
+
+async def apply_student_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_student"] = text
+    if getattr(text, "lower", lambda: "")() == "ha" or text == "Ha":
+        await update.message.reply_text("O'qish vaqtingizni tanlang:", reply_markup=study_time_kb())
+        return APPLY_STUDY_TIME
+    else:
+        context.user_data["app_study_time"] = "-"
+        await update.message.reply_text("Sizning ta'lim darajangiz qanday?", reply_markup=education_kb())
+        return APPLY_EDUCATION
+
+async def apply_study_time_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_study_time"] = text
+    context.user_data["app_education"] = "Talaba"
+    await update.message.reply_text("O'z ish tajribangiz haqida yozing:", reply_markup=cancel_kb())
+    return APPLY_EXPERIENCE
+
+async def apply_education_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_education"] = text
+    await update.message.reply_text("O'z ish tajribangiz haqida yozing:", reply_markup=cancel_kb())
+    return APPLY_EXPERIENCE
+
+async def apply_experience_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_experience"] = text
+    await update.message.reply_text("O'zbek tili bilish darajasi?", reply_markup=lang_level_kb())
+    return APPLY_LANG_UZ
+
+async def apply_lang_uz_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_lang_uz"] = text
+    await update.message.reply_text("Rus tili bilish darajasi?", reply_markup=lang_level_kb())
+    return APPLY_LANG_RU
+
+async def apply_lang_ru_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_lang_ru"] = text
+    await update.message.reply_text("Ingliz tili bilish darajasi?", reply_markup=lang_level_kb())
+    return APPLY_LANG_EN
+
+async def apply_lang_en_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_lang_en"] = text
+    await update.message.reply_text("Kutilgan ish maoshini darajasini ko'rsating (so'm):", reply_markup=salary_kb())
+    return APPLY_SALARY
+
+async def apply_salary_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    if check_cancel(text, user_id):
+        await update.message.reply_text("Ariza bekor qilindi.", reply_markup=main_menu_kb(user_id))
+        return MENU
+    context.user_data["app_salary"] = text
     
-    # Compile and send
     is_general = context.user_data.get("is_general_apply")
     uname = update.effective_user.username or "Noma'lum"
+
+    info_str = (
+        f"👥 *Nomzod Ma'lumotlari:*\n"
+        f"👤 Ism: {context.user_data.get('app_name')}\n"
+        f"🗓️ Tug'ilgan sana: {context.user_data.get('app_birthday')}\n"
+        f"📍 Manzil: {context.user_data.get('app_address')}\n"
+        f"☎️ Telefon: {context.user_data.get('app_phone')}\n"
+        f"💍 Oila holati: {context.user_data.get('app_marital')}\n"
+        f"🎓 Talabami?: {context.user_data.get('app_student')}\n"
+        f"⏰ O'qish vaqti: {context.user_data.get('app_study_time')}\n"
+        f"📚 Ta'lim darajasi: {context.user_data.get('app_education')}\n"
+        f"⏳ Ish tajribasi: {context.user_data.get('app_experience')}\n"
+        f"🇺🇿 O'zbek tili: {context.user_data.get('app_lang_uz')}\n"
+        f"🇷🇺 Rus tili: {context.user_data.get('app_lang_ru')}\n"
+        f"🇬🇧 Ingliz tili: {context.user_data.get('app_lang_en')}\n"
+        f"💸 Kutilayotgan maosh: {context.user_data.get('app_salary')}\n\n"
+        f"Username: @{uname}"
+    )
 
     if is_general:
         admin_msg = (
             f"📩 *YANGI UMUMIY ARIZA*\n\n"
-            f"👥 *Nomzod Ma'lumotlari:*\n"
-            f"👤 Ism: {context.user_data.get('app_name')}\n"
-            f"🗓️ Tu'gilgan sana: {context.user_data.get('app_birthday')}\n"
-            f"📍 Ishlashni xohlagan joyi: {context.user_data.get('app_address')}\n"
-            f"🎓 Ta'lim: {context.user_data.get('app_education')}\n"
-            f"⏳ Tajriba: {context.user_data.get('app_experience')}\n"
-            f"💼 Oxirgi ish joyi: {context.user_data.get('app_last_job')}\n"
-            f"💸 Maosh: {context.user_data.get('app_salary')}\n"
-            f"💻 Kompyuter bilimi: {context.user_data.get('app_skill')}\n"
-            f"☎️ Telefon: {context.user_data.get('app_phone')}\n\n"
-            f"Username: @{uname}"
+            f"🏢 Bo'lim: {context.user_data.get('app_department', '-')}\n"
+            f"📍 Ofis Manzili: {context.user_data.get('app_ofis_address', '-')}\n"
+            f"💼 Kutilayotgan Vakansiya: {context.user_data.get('app_vacancy', '-')}\n\n"
+            + info_str
         )
     else:
         vacancy = context.user_data.get("sel_vacancy_title", "Noma'lum")
@@ -546,17 +676,7 @@ async def apply_phone_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"🏙 Tuman: {district}\n"
             f"🏪 Filial: {branch}\n"
             f"💼 Vakansiya: {vacancy}\n\n"
-            f"👥 *Nomzod Ma'lumotlari:*\n"
-            f"👤 Ism: {context.user_data.get('app_name')}\n"
-            f"🗓️ Tu'gilgan sana: {context.user_data.get('app_birthday')}\n"
-            f"📍 Manzil: {context.user_data.get('app_address')}\n"
-            f"🎓 Ta'lim: {context.user_data.get('app_education')}\n"
-            f"⏳ Tajriba: {context.user_data.get('app_experience')}\n"
-            f"💼 Oxirgi ish joyi: {context.user_data.get('app_last_job')}\n"
-            f"💸 Maosh: {context.user_data.get('app_salary')}\n"
-            f"💻 Kompyuter bilimi: {context.user_data.get('app_skill')}\n"
-            f"☎️ Telefon: {context.user_data.get('app_phone')}\n\n"
-            f"Username: @{uname}"
+            + info_str
         )
 
     for admin_id in ADMIN_IDS:
@@ -735,15 +855,22 @@ def main():
             ADMIN_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_input_handler)],
             ADMIN_DELETE_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_delete_handler)],
             USER_NAV: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_nav_handler)],
+            ARIZA_DEPARTMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_department_handler)],
+            ARIZA_OFIS_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_ofis_address_handler)],
+            ARIZA_VACANCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_vacancy_handler)],
             APPLY_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_name_handler)],
             APPLY_BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_birthday_handler)],
             APPLY_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_address_handler)],
+            APPLY_PHONE: [MessageHandler(filters.ALL & ~filters.COMMAND, apply_phone_handler)],
+            APPLY_MARITAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_marital_handler)],
+            APPLY_STUDENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_student_handler)],
+            APPLY_STUDY_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_study_time_handler)],
             APPLY_EDUCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_education_handler)],
             APPLY_EXPERIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_experience_handler)],
-            APPLY_LAST_JOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_last_job_handler)],
+            APPLY_LANG_UZ: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_lang_uz_handler)],
+            APPLY_LANG_RU: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_lang_ru_handler)],
+            APPLY_LANG_EN: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_lang_en_handler)],
             APPLY_SALARY: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_salary_handler)],
-            APPLY_SKILL: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_skill_handler)],
-            APPLY_PHONE: [MessageHandler(filters.ALL & ~filters.COMMAND, apply_phone_handler)],
         },
         fallbacks=[CommandHandler("start", start)],
     )

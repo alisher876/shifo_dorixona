@@ -110,7 +110,7 @@ def is_admin(user_id: int) -> bool:
 
 
 def main_menu_kb(user_id: int) -> ReplyKeyboardMarkup:
-    buttons = [["ℹ️ Kompaniya haqida", "📝 Ariza qoldirish"], ["🔥 Qaynoq ish o'rinlari", "💼 Bo'sh ish o'rinlari"]]
+    buttons = [["ℹ️ Kompaniya haqida", "💼 Bo'sh ish o'rinlari"], ["🔥 Qaynoq ish o'rinlari"]]
     if is_admin(user_id):
         buttons.append(["⚙️ Admin panel"])
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
@@ -366,30 +366,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return MENU
 
-    if text == "💼 Bo'sh ish o'rinlari":
-        vacancies = db_query("""
-            SELECT v.title, b.name, d.name, r.name 
-            FROM vacancies v 
-            JOIN branches b ON v.branch_id = b.id 
-            JOIN districts d ON b.district_id = d.id 
-            JOIN regions r ON d.region_id = r.id
-            ORDER BY v.title, r.name, d.name, b.name
-        """)
-        if not vacancies:
-            await update.message.reply_text("😔 Hozircha bo'sh ish o'rinlari yo'q.", reply_markup=main_menu_kb(user_id))
-        else:
-            lines = [f"🔹 {v[0]} — {v[1]} / {v[2]} / {v[3]}" for v in vacancies]
-            msg = "📋 Barcha ochiq vakansiyalar:\n\n" + "\n".join(lines)
-            if len(msg) > 4000:
-                msg = msg[:4000] + "\n... (va boshqalar)"
-            await update.message.reply_text(msg, reply_markup=main_menu_kb(user_id))
-        return MENU
-        
     if text == "🔥 Qaynoq ish o'rinlari":
         context.user_data["is_general_apply"] = False
         return await user_show_vacancies_first(update, context)
 
-    if text == "📝 Ariza qoldirish":
+    if text == "💼 Bo'sh ish o'rinlari":
         context.user_data["is_general_apply"] = True
         context.user_data["app_ofis_address"] = ""
         await update.message.reply_text(

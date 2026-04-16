@@ -143,7 +143,7 @@ def ariza_ofis_address_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([["Guliston 3 massivi 49A-uy(Guliston 3 poliknikasi)"], ["❌ Bekor qilish"]], resize_keyboard=True)
 
 def ariza_ofis_vacancies_kb() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup([["Zam Direktor", "Buxgalter"], ["Zavxoz(programist)", "Menedjer"], ["Bron", "Shafyor"], ["❌ Bekor qilish"]], resize_keyboard=True)
+    return ReplyKeyboardMarkup([["Zam Direktor", "Buxgalter"], ["Zavxoz(programist)", "Menedjer"], ["Bron", "Shafyor", "HR"], ["❌ Bekor qilish"]], resize_keyboard=True)
 
 def ariza_dorixona_vacancies_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([["Farmasevt", "Parafarmasevt"], ["❌ Bekor qilish"]], resize_keyboard=True)

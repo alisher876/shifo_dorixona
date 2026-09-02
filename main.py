@@ -16,7 +16,11 @@ TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 ADMIN_IDS_ENV = os.environ.get("ADMIN_ID", "")
 ADMIN_IDS = [int(x) for x in ADMIN_IDS_ENV.split(",") if x.strip().isdigit()]
 
-DB_PATH = "shifo.db"
+# Railway'da har deploy'da konteyner qaytadan quriladi — shuning uchun DB
+# doimiy Volume ichida saqlanishi shart. Volume /data ga mount qilinsa,
+# baza avtomatik o'sha yerdan olinadi; lokalda esa oddiy shifo.db ishlatiladi.
+DEFAULT_DB_DIR = "/data" if os.path.isdir("/data") else "."
+DB_PATH = os.environ.get("DB_PATH", os.path.join(DEFAULT_DB_DIR, "shifo.db"))
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -60,6 +64,9 @@ logger.info(f"ADMIN_IDS loaded: {ADMIN_IDS}")
 
 # ─────────────────────── Database helpers ──────────────────────
 def init_db():
+    parent = os.path.dirname(os.path.abspath(DB_PATH))
+    os.makedirs(parent, exist_ok=True)
+    logger.info(f"DB_PATH: {os.path.abspath(DB_PATH)}")
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.executescript("""

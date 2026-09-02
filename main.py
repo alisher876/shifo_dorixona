@@ -38,6 +38,7 @@ logger.info(f"ADMIN_IDS loaded: {ADMIN_IDS}")
     ADMIN_NAV,
     ADMIN_INPUT,
     ADMIN_DELETE_CONFIRM,
+    ADMIN_DELETE_FINAL,
     # User states for Qaynoq
     USER_NAV,
     # New user states for Ariza
@@ -61,7 +62,7 @@ logger.info(f"ADMIN_IDS loaded: {ADMIN_IDS}")
     APPLY_LANG_RU,
     APPLY_LANG_EN,
     APPLY_SALARY,
-) = range(24)
+) = range(25)
 
 # ─────────────────────── Database helpers ──────────────────────
 def init_db():
@@ -91,12 +92,34 @@ def init_db():
             branch_id   INTEGER REFERENCES branches(id) ON DELETE CASCADE
         );
     """)
+    # Eski deploy'larda CASCADE ishlamagani uchun bazada "yetim" yozuvlar
+    # qolgan bo'lishi mumkin. Ularni bir marta tozalaymiz (yuqoridan pastga).
+    removed = 0
+    for sql in (
+        "DELETE FROM districts WHERE region_id IS NULL OR region_id NOT IN (SELECT id FROM regions)",
+        "DELETE FROM branches  WHERE district_id IS NULL OR district_id NOT IN (SELECT id FROM districts)",
+        "DELETE FROM vacancies WHERE branch_id IS NULL OR branch_id NOT IN (SELECT id FROM branches)",
+    ):
+        c.execute(sql)
+        removed += c.rowcount
+    if removed:
+        logger.info(f"Yetim yozuvlar tozalandi: {removed} ta")
+
     conn.commit()
     conn.close()
 
 
-def db_query(sql, params=()):
+def db_connect():
     conn = sqlite3.connect(DB_PATH)
+    # SQLite'da foreign key'lar STANDART holatda O'CHIQ. Bu pragmasiz
+    # ON DELETE CASCADE umuman ishlamaydi — viloyat o'chirilsa, uning
+    # tumanlari/filiallari/vakansiyalari bazada "yetim" bo'lib qolaveradi.
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def db_query(sql, params=()):
+    conn = db_connect()
     c = conn.cursor()
     c.execute(sql, params)
     rows = c.fetchall()
@@ -105,7 +128,7 @@ def db_query(sql, params=()):
 
 
 def db_execute(sql, params=()):
-    conn = sqlite3.connect(DB_PATH)
+    conn = db_connect()
     c = conn.cursor()
     c.execute(sql, params)
     conn.commit()
@@ -134,6 +157,11 @@ def user_nav_kb(items) -> ReplyKeyboardMarkup:
     rows = [[item[1]] for item in items]
     rows.append(["⬅️ Back", "🏠 Main Menu"])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
+def confirm_delete_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [["✅ Ha, o'chirilsin"], ["❌ Yo'q, bekor qilish"]], resize_keyboard=True
+    )
 
 def cancel_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([["❌ Bekor qilish"]], resize_keyboard=True)
@@ -272,6 +300,10 @@ async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE
         branch_id = context.user_data.get("branch_id")
         items = db_query("SELECT id, title FROM vacancies WHERE branch_id = ?", (branch_id,)) if branch_id else []
 
+    # Tugma matni emas, ID bo'yicha o'chiramiz — aks holda bir xil nomli
+    # yozuvlar (masalan turli viloyatdagi bir xil tuman nomi) ham o'chib ketadi.
+    context.user_data["delete_map"] = {str(i[1]): i[0] for i in items}
+
     kb = [[f"🗑 {i[1]}"] for i in items]
     kb.append(["⬅️ Back"])
     await update.message.reply_text(
@@ -284,7 +316,14 @@ async def show_delete_options(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ──────────────────── User navigation logic (Inverted Flow) ────────────────────
 async def user_show_vacancies_first(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["user_level"] = "vacancy_title"
-    items = db_query("SELECT DISTINCT title, title FROM vacancies")
+    # Faqat viloyat→tuman→filial zanjiri butun bo'lgan vakansiyalar ko'rsatiladi.
+    items = db_query("""
+        SELECT DISTINCT v.title, v.title
+        FROM vacancies v
+        JOIN branches  b ON v.branch_id = b.id
+        JOIN districts d ON b.district_id = d.id
+        JOIN regions   r ON d.region_id = r.id
+    """)
     
     if not items:
         await update.message.reply_text(
@@ -310,6 +349,12 @@ async def user_show_filtered_regions(update: Update, context: ContextTypes.DEFAU
         JOIN vacancies v ON b.id = v.branch_id
         WHERE v.title = ? COLLATE NOCASE
     """, (title,))
+    if not items:
+        await update.message.reply_text(
+            "😔 Bu vakansiya bo'yicha hozircha manzil yo'q. Boshqasini tanlang."
+        )
+        return await user_show_vacancies_first(update, context)
+
     await update.message.reply_text(
         "📍 Qaysi viloyatda ishlashni xohlaysiz?",
         reply_markup=user_nav_kb(items),
@@ -327,6 +372,12 @@ async def user_show_filtered_districts(update: Update, context: ContextTypes.DEF
         JOIN vacancies v ON b.id = v.branch_id
         WHERE v.title = ? COLLATE NOCASE AND d.region_id = ?
     """, (title, region_id))
+    if not items:
+        await update.message.reply_text(
+            "😔 Bu vakansiya bo'yicha hozircha manzil yo'q. Boshqasini tanlang."
+        )
+        return await user_show_vacancies_first(update, context)
+
     await update.message.reply_text(
         "🏙 Qaysi tumanda ishlashni xohlaysiz?",
         reply_markup=user_nav_kb(items),
@@ -343,6 +394,12 @@ async def user_show_filtered_branches(update: Update, context: ContextTypes.DEFA
         JOIN vacancies v ON b.id = v.branch_id
         WHERE v.title = ? COLLATE NOCASE AND b.district_id = ?
     """, (title, district_id))
+    if not items:
+        await update.message.reply_text(
+            "😔 Bu vakansiya bo'yicha hozircha manzil yo'q. Boshqasini tanlang."
+        )
+        return await user_show_vacancies_first(update, context)
+
     await update.message.reply_text(
         "🏪 Qaysi filialda ishlashni xohlaysiz?",
         reply_markup=user_nav_kb(items),
@@ -878,38 +935,125 @@ async def admin_input_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     return await show_admin_vacancies(update, context)
 
 
-async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    level = context.user_data.get("level")
+LEVEL_LABELS = {
+    "region": "viloyat",
+    "district": "tuman",
+    "branch": "filial",
+    "vacancy": "vakansiya",
+}
 
-    if text == "⬅️ Back":
-        if level == "region": return await show_regions(update, context)
-        if level == "district": return await show_districts(update, context)
-        if level == "branch": return await show_branches(update, context)
-        if level == "vacancy": return await show_admin_vacancies(update, context)
-        return MENU
 
-    item_name = text[2:].strip() if text.startswith("🗑") else text
-    
+async def back_to_level(update: Update, context: ContextTypes.DEFAULT_TYPE, level):
+    if level == "region": return await show_regions(update, context)
+    if level == "district": return await show_districts(update, context)
+    if level == "branch": return await show_branches(update, context)
+    return await show_admin_vacancies(update, context)
+
+
+def count_children(level, item_id):
+    """Bu yozuv o'chirilsa, CASCADE bilan birga nima o'chishini sanaydi."""
+    if level == "region":
+        row = db_query("""
+            SELECT
+              (SELECT COUNT(*) FROM districts WHERE region_id = ?),
+              (SELECT COUNT(*) FROM branches b
+                 JOIN districts d ON b.district_id = d.id
+                WHERE d.region_id = ?),
+              (SELECT COUNT(*) FROM vacancies v
+                 JOIN branches b ON v.branch_id = b.id
+                 JOIN districts d ON b.district_id = d.id
+                WHERE d.region_id = ?)
+        """, (item_id, item_id, item_id))[0]
+        return [("🏙", row[0], "tuman"), ("🏪", row[1], "filial"), ("💼", row[2], "vakansiya")]
+
+    if level == "district":
+        row = db_query("""
+            SELECT
+              (SELECT COUNT(*) FROM branches WHERE district_id = ?),
+              (SELECT COUNT(*) FROM vacancies v
+                 JOIN branches b ON v.branch_id = b.id
+                WHERE b.district_id = ?)
+        """, (item_id, item_id))[0]
+        return [("🏪", row[0], "filial"), ("💼", row[1], "vakansiya")]
+
+    if level == "branch":
+        row = db_query("SELECT COUNT(*) FROM vacancies WHERE branch_id = ?", (item_id,))[0]
+        return [("💼", row[0], "vakansiya")]
+
+    return []
+
+
+async def perform_delete(update: Update, context: ContextTypes.DEFAULT_TYPE, level, item_id, item_name):
     try:
         if level == "region":
-            db_execute("DELETE FROM regions WHERE name = ?", (item_name,))
+            db_execute("DELETE FROM regions WHERE id = ?", (item_id,))
         elif level == "district":
-            db_execute("DELETE FROM districts WHERE name = ?", (item_name,))
+            db_execute("DELETE FROM districts WHERE id = ?", (item_id,))
         elif level == "branch":
-            db_execute("DELETE FROM branches WHERE name = ?", (item_name,))
+            db_execute("DELETE FROM branches WHERE id = ?", (item_id,))
         else:
-            db_execute("DELETE FROM vacancies WHERE title = ?", (item_name,))
-        
+            db_execute("DELETE FROM vacancies WHERE id = ?", (item_id,))
+
         await update.message.reply_text(f"✅ O'chirildi: {item_name}")
     except Exception as e:
         logger.error(f"DB delete error: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Xatolik: {e}")
 
-    if level == "region": return await show_regions(update, context)
-    if level == "district": return await show_districts(update, context)
-    if level == "branch": return await show_branches(update, context)
-    return await show_admin_vacancies(update, context)
+    context.user_data.pop("pending_delete", None)
+    return await back_to_level(update, context, level)
+
+
+async def admin_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    level = context.user_data.get("level")
+
+    if text == "⬅️ Back":
+        return await back_to_level(update, context, level)
+
+    item_name = text[2:].strip() if text.startswith("🗑") else text
+    item_id = (context.user_data.get("delete_map") or {}).get(item_name)
+
+    if item_id is None:
+        await update.message.reply_text("⚠️ Bunday element topilmadi. Ro'yxatdan tanlang.")
+        return await back_to_level(update, context, level)
+
+    # Ichida nima borligini sanaymiz — admin ko'rmayotgan narsa o'chib ketmasin.
+    doomed = [(icon, n, word) for icon, n, word in count_children(level, item_id) if n > 0]
+
+    if not doomed:
+        # Bo'sh yozuv: yashirin yo'qotish yo'q, so'ramasdan o'chiraveramiz.
+        return await perform_delete(update, context, level, item_id, item_name)
+
+    context.user_data["pending_delete"] = {"level": level, "id": item_id, "name": item_name}
+    lines = "\n".join(f"{icon} {n} ta {word}" for icon, n, word in doomed)
+    await update.message.reply_text(
+        f"⚠️ DIQQAT!\n\n"
+        f"\"{item_name}\" {LEVEL_LABELS.get(level, '')}ini o'chirsangiz, "
+        f"u bilan birga quyidagilar ham o'chadi:\n\n"
+        f"{lines}\n\n"
+        f"Bu amalni ortga qaytarib bo'lmaydi. Davom etasizmi?",
+        reply_markup=confirm_delete_kb(),
+    )
+    return ADMIN_DELETE_FINAL
+
+
+async def admin_delete_final_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    pending = context.user_data.get("pending_delete")
+
+    if not pending:
+        await update.message.reply_text("⚠️ Amal eskirdi. Qaytadan urinib ko'ring.")
+        return await back_to_level(update, context, context.user_data.get("level"))
+
+    if text == "✅ Ha, o'chirilsin":
+        return await perform_delete(
+            update, context, pending["level"], pending["id"], pending["name"]
+        )
+
+    # Boshqa har qanday javob = bekor qilish (xavfsiz tomon).
+    context.user_data.pop("pending_delete", None)
+    await update.message.reply_text("🚫 Bekor qilindi. Hech narsa o'chirilmadi.")
+    return await back_to_level(update, context, pending["level"])
 
 
 # ──────────────────────────── Main ─────────────────────────────
@@ -933,6 +1077,7 @@ def main():
             ADMIN_NAV: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_nav_handler)],
             ADMIN_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_input_handler)],
             ADMIN_DELETE_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_delete_handler)],
+            ADMIN_DELETE_FINAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_delete_final_handler)],
             USER_NAV: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_nav_handler)],
             ARIZA_DEPARTMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_department_handler)],
             ARIZA_OFIS_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ariza_ofis_address_handler)],
